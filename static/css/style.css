@@ -853,9 +853,11 @@ body {
 
 .input-footer {
     text-align: center;
-    font-size: 0.68rem;
+    font-size: 0.72rem;
     color: var(--text-muted);
     margin-top: 8px;
+    letter-spacing: -0.01em;
+    user-select: none;
 }
 
 /* Toast */
