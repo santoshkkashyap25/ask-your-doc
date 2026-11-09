@@ -188,7 +188,8 @@ class Container:
                 max_total_storage_mb=self.settings.MAX_TOTAL_STORAGE_MB,
                 max_file_size_mb=getattr(self.settings, "MAX_FILE_SIZE_MB", 10),
                 cache=self.cache,
-                zero_retention=getattr(self.settings, "ZERO_RETENTION", True)
+                zero_retention=getattr(self.settings, "ZERO_RETENTION", True),
+                inactivity_timeout_seconds=getattr(self.settings, "DOC_INACTIVITY_TIMEOUT_SECONDS", 1800)
             )
         return self._document_service
 

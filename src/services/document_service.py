@@ -3,6 +3,7 @@
 import hashlib
 import logging
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -31,7 +32,8 @@ class DocumentService:
         max_total_storage_mb: int = 10,
         max_file_size_mb: int = 10,
         cache: Optional[BaseCache] = None,
-        zero_retention: bool = True
+        zero_retention: bool = True,
+        inactivity_timeout_seconds: int = 1800
     ):
         self.loader = loader
         self.splitter = splitter
@@ -44,7 +46,28 @@ class DocumentService:
         self.max_file_size_mb = max_file_size_mb
         self.cache = cache
         self.zero_retention = zero_retention
+        self.inactivity_timeout_seconds = inactivity_timeout_seconds
+        self._last_accessed: Dict[str, float] = {}
         self._documents_meta: Dict[str, DocumentMetadata] = {}
+
+    def touch_document(self, doc_id: str) -> None:
+        """Update last accessed timestamp for a document to prevent idle auto-purge."""
+        if doc_id in self._documents_meta:
+            self._last_accessed[doc_id] = time.time()
+
+    def purge_inactive_documents(self) -> int:
+        """Evict documents that have been idle longer than inactivity_timeout_seconds."""
+        if self.inactivity_timeout_seconds <= 0:
+            return 0
+        now = time.time()
+        to_purge = [
+            d_id for d_id, last_t in list(self._last_accessed.items())
+            if (now - last_t) > self.inactivity_timeout_seconds
+        ]
+        for d_id in to_purge:
+            logger.info("Auto-evicting idle document '%s' (idle for >%ds)", d_id, self.inactivity_timeout_seconds)
+            self.delete_document(d_id)
+        return len(to_purge)
 
     def _compute_hash(self, file_bytes: bytes) -> str:
         return hashlib.sha256(file_bytes).hexdigest()
@@ -144,6 +167,9 @@ class DocumentService:
 
         content_hash = self._compute_hash(file_bytes)
 
+        # Evict any idle documents before checking limits
+        self.purge_inactive_documents()
+
         # Check if identical file was already indexed
         self._hydrate_metadata()
         for existing in self._documents_meta.values():
@@ -220,6 +246,7 @@ class DocumentService:
             total_chunks=len(chunks)
         )
         self._documents_meta[doc_id] = meta
+        self._last_accessed[doc_id] = time.time()
 
         if self.cache and not self.zero_retention:
             try:
@@ -241,6 +268,7 @@ class DocumentService:
 
     def list_documents(self) -> List[Dict[str, Any]]:
         """List all indexed documents combining metadata, disk files, and vector store counts."""
+        self.purge_inactive_documents()
         self._hydrate_metadata()
         vector_docs = self.vector_store.list_documents()
         docs_by_id = {d["doc_id"]: d for d in vector_docs}
@@ -281,6 +309,8 @@ class DocumentService:
         self.vector_store.delete_document(doc_id)
         if doc_id in self._documents_meta:
             del self._documents_meta[doc_id]
+        if doc_id in self._last_accessed:
+            del self._last_accessed[doc_id]
 
         if self.cache:
             if not self.zero_retention:
@@ -301,3 +331,13 @@ class DocumentService:
 
         logger.info("Deleted document doc_id='%s'", doc_id)
         return True
+
+    def clear_all_documents(self) -> int:
+        """Evict all documents and chunks from memory and storage."""
+        all_ids = list(self._documents_meta.keys())
+        for d_id in all_ids:
+            self.delete_document(d_id)
+        if self.cache:
+            self.cache.clear("answers")
+        logger.info("Cleared all %d documents from memory", len(all_ids))
+        return len(all_ids)

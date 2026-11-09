@@ -514,6 +514,81 @@ class TestRAGComponents(unittest.TestCase):
         self.assertEqual(len(doc_service.list_documents()), 0)
         self.assertEqual(len(store._chunks), 0)
 
+    def test_idle_document_inactivity_auto_purge(self):
+        """Test that documents idle longer than inactivity_timeout_seconds are automatically purged."""
+        from src.services.document_service import DocumentService
+
+        class DummyLoader:
+            def load_bytes(self, file_bytes, filename, doc_id):
+                return [Document(doc_id=doc_id, filename=filename, page_number=1, text="Text")]
+
+        class DummySplitter:
+            def split_documents(self, docs):
+                return [DocumentChunk(chunk_id=f"c_{docs[0].doc_id}", doc_id=docs[0].doc_id, filename=docs[0].filename, page_number=1, chunk_index=0, text="Text")]
+
+        class DummyEmbeddings:
+            def embed_documents(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        store = MemoryVectorStore()
+        # Set short timeout of 1 second
+        doc_service = DocumentService(
+            loader=DummyLoader(),
+            splitter=DummySplitter(),
+            embeddings=DummyEmbeddings(),
+            vector_store=store,
+            upload_dir=self.test_dir / "idle_uploads",
+            inactivity_timeout_seconds=1
+        )
+
+        meta = doc_service.ingest_pdf("idle.pdf", b"%PDF-1.4 idle data")
+        self.assertEqual(len(doc_service.list_documents()), 1)
+
+        # Fast forward time by altering last_accessed timestamp to 2 seconds ago
+        doc_service._last_accessed[meta.doc_id] = time.time() - 2.0
+
+        # Next call to list_documents or ingest triggers auto-purge
+        docs = doc_service.list_documents()
+        self.assertEqual(len(docs), 0, "Idle document should have been auto-purged from memory!")
+        self.assertEqual(len(store._chunks), 0, "Vector store chunks should have been cleared!")
+
+    def test_clear_all_documents(self):
+        """Test that clear_all_documents purges all active documents from memory at once."""
+        from src.services.document_service import DocumentService
+
+        class DummyLoader:
+            def load_bytes(self, file_bytes, filename, doc_id):
+                return [Document(doc_id=doc_id, filename=filename, page_number=1, text="Text")]
+
+        class DummySplitter:
+            def split_documents(self, docs):
+                return [DocumentChunk(chunk_id=f"c_{docs[0].doc_id}", doc_id=docs[0].doc_id, filename=docs[0].filename, page_number=1, chunk_index=0, text="Text")]
+
+        class DummyEmbeddings:
+            def embed_documents(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        store = MemoryVectorStore()
+        doc_service = DocumentService(
+            loader=DummyLoader(),
+            splitter=DummySplitter(),
+            embeddings=DummyEmbeddings(),
+            vector_store=store,
+            upload_dir=self.test_dir / "clear_all_uploads"
+        )
+
+        for i in range(3):
+            doc_service.ingest_pdf(f"doc_{i}.pdf", f"%PDF-1.4 data {i}".encode())
+
+        self.assertEqual(len(doc_service.list_documents()), 3)
+        self.assertEqual(len(store._chunks), 3)
+
+        # Clear all
+        cleared_count = doc_service.clear_all_documents()
+        self.assertEqual(cleared_count, 3)
+        self.assertEqual(len(doc_service.list_documents()), 0)
+        self.assertEqual(len(store._chunks), 0)
+
 
 class DummyEmbeddingsWithVecs:
     def embed_query(self, q):

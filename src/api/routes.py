@@ -88,6 +88,13 @@ async def list_documents():
     return [DocumentResponse(**d) for d in docs]
 
 
+@router.delete("/api/documents")
+async def clear_all_documents():
+    """Remove all documents and chunks from memory and vector store."""
+    count = await asyncio.to_thread(container.document_service.clear_all_documents)
+    return {"message": f"Successfully cleared all {count} documents", "cleared_count": count}
+
+
 @router.delete("/api/documents/{doc_id}")
 async def delete_document(doc_id: str):
     """Remove a document and all its indexed chunks from the system."""

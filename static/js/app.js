@@ -203,6 +203,31 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    const btnClearAllDocs = document.getElementById("btn-clear-all-docs");
+    if (btnClearAllDocs) {
+        btnClearAllDocs.addEventListener("click", async () => {
+            const count = parseInt(docCountEl.textContent || "0", 10);
+            if (count === 0) {
+                showToast("No documents to clear.", "info");
+                return;
+            }
+            if (!confirm(`Are you sure you want to clear all ${count} document(s) from memory?`)) {
+                return;
+            }
+            try {
+                const resp = await fetch("/api/documents", { method: "DELETE" });
+                if (resp.ok) {
+                    showToast("Cleared all documents from memory", "success");
+                    await loadDocuments();
+                } else {
+                    throw new Error("Failed to clear documents");
+                }
+            } catch (err) {
+                showToast(err.message, "error");
+            }
+        });
+    }
+
     // Cache Stats & Flush
     async function loadCacheStats() {
         if (!valCacheRate) return;

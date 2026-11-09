@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     # Storage & Document Limits
     ZERO_RETENTION: bool = True  # When True, PDFs are parsed in-memory without saving to server disk
+    DOC_INACTIVITY_TIMEOUT_SECONDS: int = 1800  # 30-minute idle timeout to automatically evict documents from RAM
     MAX_DOCUMENTS: int = 5
     MAX_TOTAL_STORAGE_MB: int = 10
     MAX_FILE_SIZE_MB: int = 10
