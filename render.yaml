@@ -20,6 +20,8 @@ services:
         value: all-MiniLM-L6-v2
       - key: DEBUG
         value: "false"
+      - key: ZERO_RETENTION
+        value: "true"
       - key: MAX_DOCUMENTS
         value: "5"
       - key: MAX_TOTAL_STORAGE_MB

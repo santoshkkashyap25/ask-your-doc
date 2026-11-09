@@ -302,7 +302,8 @@ class TestRAGComponents(unittest.TestCase):
             embeddings=DummyEmbeddings(),
             vector_store=MemoryVectorStore(),
             upload_dir=upload_dir,
-            cache=cache
+            cache=cache,
+            zero_retention=False
         )
         meta = s1.ingest_pdf("sample.pdf", b"%PDF-1.4 sample data")
         self.assertEqual(meta.filename, "sample.pdf")
@@ -314,7 +315,8 @@ class TestRAGComponents(unittest.TestCase):
             embeddings=DummyEmbeddings(),
             vector_store=MemoryVectorStore(),
             upload_dir=upload_dir,
-            cache=cache
+            cache=cache,
+            zero_retention=False
         )
         docs = s2.list_documents()
         self.assertEqual(len(docs), 1)
@@ -463,6 +465,54 @@ class TestRAGComponents(unittest.TestCase):
         sources_events = [e for e in events if e.get("type") == "sources"]
         # Last sources event emitted should be empty
         self.assertEqual(len(sources_events[-1]["citations"]), 0)
+
+    def test_zero_retention_in_memory_ingestion(self):
+        """Test that zero-retention mode indexes documents completely in-memory without saving to disk."""
+        from src.services.document_service import DocumentService
+
+        class DummyLoader:
+            def load(self, path, doc_id=""):
+                return [Document(doc_id=doc_id, filename="doc.pdf", page_number=1, text="Text")]
+
+            def load_bytes(self, file_bytes, filename, doc_id):
+                return [Document(doc_id=doc_id, filename=filename, page_number=1, text="In memory text")]
+
+        class DummySplitter:
+            def split_documents(self, docs):
+                return [DocumentChunk(chunk_id=f"c_{docs[0].doc_id}", doc_id=docs[0].doc_id, filename=docs[0].filename, page_number=1, chunk_index=0, text="In memory text")]
+
+        class DummyEmbeddings:
+            def embed_documents(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        upload_dir = self.test_dir / "zero_retention_uploads"
+        store = MemoryVectorStore()
+        doc_service = DocumentService(
+            loader=DummyLoader(),
+            splitter=DummySplitter(),
+            embeddings=DummyEmbeddings(),
+            vector_store=store,
+            upload_dir=upload_dir,
+            zero_retention=True
+        )
+
+        meta = doc_service.ingest_pdf("private_doc.pdf", b"%PDF-1.4 sample private data")
+        self.assertEqual(meta.filename, "private_doc.pdf")
+        self.assertEqual(len(store._chunks), 1)
+
+        # Crucial check: NO file should exist on disk!
+        files_on_disk = list(upload_dir.glob("*"))
+        self.assertEqual(len(files_on_disk), 0, "Zero-retention mode must NOT write files to disk!")
+
+        # Stats must work from in-memory metadata
+        stats = doc_service.get_storage_stats()
+        self.assertEqual(stats["total_documents"], 1)
+        self.assertGreater(stats["total_bytes"], 0)
+
+        # Deletion cleans in-memory store
+        doc_service.delete_document(meta.doc_id)
+        self.assertEqual(len(doc_service.list_documents()), 0)
+        self.assertEqual(len(store._chunks), 0)
 
 
 class DummyEmbeddingsWithVecs:

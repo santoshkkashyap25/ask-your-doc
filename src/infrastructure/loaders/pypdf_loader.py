@@ -73,3 +73,63 @@ class PyPDFLoader(BaseDocumentLoader):
         except Exception as e:
             logger.error("All PDF extraction methods failed for '%s': %s", filename, e)
             raise RuntimeError(f"Failed to extract text from PDF '{filename}': {e}") from e
+
+    def load_bytes(self, file_bytes: bytes, filename: str, doc_id: str) -> List[Document]:
+        """Extract text from in-memory PDF bytes using pypdf with pdfplumber fallback."""
+        import io
+        documents: List[Document] = []
+        clean_filename = filename
+        if doc_id and clean_filename.startswith(f"{doc_id}_"):
+            clean_filename = clean_filename[len(doc_id) + 1:]
+
+        # Attempt extraction via pypdf first
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(file_bytes))
+            total_pages = len(reader.pages)
+
+            for page_idx, page in enumerate(reader.pages):
+                page_text = page.extract_text() or ""
+                page_num = page_idx + 1
+                cleaned_text = page_text.strip()
+                if cleaned_text:
+                    documents.append(
+                        Document(
+                            doc_id=doc_id,
+                            filename=clean_filename,
+                            page_number=page_num,
+                            text=cleaned_text,
+                            metadata={"total_pages": total_pages, "extractor": "pypdf"}
+                        )
+                    )
+
+            if documents:
+                logger.info("Loaded %d pages from in-memory '%s' using pypdf", len(documents), clean_filename)
+                return documents
+        except Exception as e:
+            logger.warning("pypdf in-memory extraction failed for '%s': %s. Trying pdfplumber fallback.", clean_filename, e)
+
+        # Fallback to pdfplumber in-memory
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                total_pages = len(pdf.pages)
+                for page_idx, page in enumerate(pdf.pages):
+                    page_text = page.extract_text() or ""
+                    page_num = page_idx + 1
+                    cleaned_text = page_text.strip()
+                    if cleaned_text:
+                        documents.append(
+                            Document(
+                                doc_id=doc_id,
+                                filename=clean_filename,
+                                page_number=page_num,
+                                text=cleaned_text,
+                                metadata={"total_pages": total_pages, "extractor": "pdfplumber"}
+                            )
+                        )
+            logger.info("Loaded %d pages from in-memory '%s' using pdfplumber", len(documents), clean_filename)
+            return documents
+        except Exception as e:
+            logger.error("All in-memory PDF extraction methods failed for '%s': %s", clean_filename, e)
+            raise RuntimeError(f"Failed to extract text from PDF '{clean_filename}': {e}") from e

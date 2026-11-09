@@ -30,7 +30,8 @@ class DocumentService:
         max_documents: int = 5,
         max_total_storage_mb: int = 10,
         max_file_size_mb: int = 10,
-        cache: Optional[BaseCache] = None
+        cache: Optional[BaseCache] = None,
+        zero_retention: bool = True
     ):
         self.loader = loader
         self.splitter = splitter
@@ -42,6 +43,7 @@ class DocumentService:
         self.max_total_storage_mb = max_total_storage_mb
         self.max_file_size_mb = max_file_size_mb
         self.cache = cache
+        self.zero_retention = zero_retention
         self._documents_meta: Dict[str, DocumentMetadata] = {}
 
     def _compute_hash(self, file_bytes: bytes) -> str:
@@ -50,7 +52,10 @@ class DocumentService:
     def get_storage_stats(self) -> Dict[str, Any]:
         """Return current document count and storage usage metrics."""
         current_docs = self.list_documents()
-        total_bytes = sum(f.stat().st_size for f in self.upload_dir.glob("*_*") if f.is_file())
+        if self.zero_retention:
+            total_bytes = sum(m.file_size_bytes for m in self._documents_meta.values())
+        else:
+            total_bytes = sum(f.stat().st_size for f in self.upload_dir.glob("*_*") if f.is_file())
         max_total_bytes = self.max_total_storage_mb * 1024 * 1024
         return {
             "total_documents": len(current_docs),
@@ -63,6 +68,8 @@ class DocumentService:
 
     def _hydrate_metadata(self) -> None:
         """Hydrate in-memory metadata from cache and disk files if not already in memory."""
+        if self.zero_retention:
+            return  # In zero-retention mode, metadata lives strictly in memory
         try:
             vector_docs = {d["doc_id"]: d for d in self.vector_store.list_documents()}
         except Exception:
@@ -154,7 +161,10 @@ class DocumentService:
             )
 
         # Constraint 2: Cumulative storage limit (max 10 MB across all documents)
-        current_total_bytes = sum(f.stat().st_size for f in self.upload_dir.glob("*_*") if f.is_file())
+        if self.zero_retention:
+            current_total_bytes = sum(m.file_size_bytes for m in self._documents_meta.values())
+        else:
+            current_total_bytes = sum(f.stat().st_size for f in self.upload_dir.glob("*_*") if f.is_file())
         max_total_bytes = self.max_total_storage_mb * 1024 * 1024
         new_file_bytes = len(file_bytes)
 
@@ -169,13 +179,17 @@ class DocumentService:
             )
 
         doc_id = str(uuid.uuid4())[:8]
-        saved_path = self.upload_dir / f"{doc_id}_{filename}"
-        saved_path.write_bytes(file_bytes)
 
-        logger.info("Saved upload to '%s' (size: %d bytes)", saved_path, len(file_bytes))
+        # 1. Load document pages (In-memory zero retention vs disk)
+        if self.zero_retention and hasattr(self.loader, "load_bytes"):
+            logger.info("Zero-retention mode: parsing '%s' directly in memory (size: %d bytes)", filename, len(file_bytes))
+            pages: List[Document] = self.loader.load_bytes(file_bytes, filename=filename, doc_id=doc_id)
+        else:
+            saved_path = self.upload_dir / f"{doc_id}_{filename}"
+            saved_path.write_bytes(file_bytes)
+            logger.info("Saved upload to '%s' (size: %d bytes)", saved_path, len(file_bytes))
+            pages: List[Document] = self.loader.load(saved_path, doc_id=doc_id)
 
-        # 1. Load document pages
-        pages: List[Document] = self.loader.load(saved_path, doc_id=doc_id)
         if not pages:
             raise ValueError(f"Could not extract any readable text from '{filename}'. It might be a scanned image.")
 
@@ -207,7 +221,7 @@ class DocumentService:
         )
         self._documents_meta[doc_id] = meta
 
-        if self.cache:
+        if self.cache and not self.zero_retention:
             try:
                 self.cache.set("doc_meta", doc_id, {
                     "doc_id": meta.doc_id,
@@ -269,19 +283,21 @@ class DocumentService:
             del self._documents_meta[doc_id]
 
         if self.cache:
-            try:
-                self.cache.delete("doc_meta", doc_id)
-            except Exception as e:
-                logger.warning("Failed to delete doc_meta for '%s': %s", doc_id, e)
+            if not self.zero_retention:
+                try:
+                    self.cache.delete("doc_meta", doc_id)
+                except Exception as e:
+                    logger.warning("Failed to delete doc_meta for '%s': %s", doc_id, e)
             self.cache.clear("answers")
-            logger.info("Invalidated 'answers' and 'doc_meta' cache following deletion of doc_id='%s'", doc_id)
+            logger.info("Invalidated 'answers' cache following deletion of doc_id='%s'", doc_id)
 
-        # Clean up disk files
-        for f in self.upload_dir.glob(f"{doc_id}_*"):
-            try:
-                f.unlink(missing_ok=True)
-            except Exception as e:
-                logger.warning("Could not delete file %s: %s", f, e)
+        # Clean up disk files only if not in zero-retention mode
+        if not self.zero_retention:
+            for f in self.upload_dir.glob(f"{doc_id}_*"):
+                try:
+                    f.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.warning("Could not delete file %s: %s", f, e)
 
         logger.info("Deleted document doc_id='%s'", doc_id)
         return True

@@ -21,3 +21,17 @@ class BaseDocumentLoader(ABC):
             List of Document objects representing pages/sections.
         """
         pass
+
+    @abstractmethod
+    def load_bytes(self, file_bytes: bytes, filename: str, doc_id: str) -> List[Document]:
+        """Load document directly from in-memory bytes without saving to disk.
+
+        Args:
+            file_bytes: Raw binary content of the document.
+            filename: Original document filename.
+            doc_id: Unique identifier for the document.
+
+        Returns:
+            List of Document objects representing pages/sections.
+        """
+        pass

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # Storage & Document Limits
+    ZERO_RETENTION: bool = True  # When True, PDFs are parsed in-memory without saving to server disk
     MAX_DOCUMENTS: int = 5
     MAX_TOTAL_STORAGE_MB: int = 10
     MAX_FILE_SIZE_MB: int = 10
