@@ -21,6 +21,8 @@ services:
       - key: DEBUG
         value: "false"
       - key: MAX_DOCUMENTS
-        value: "10"
+        value: "5"
       - key: MAX_TOTAL_STORAGE_MB
-        value: "25"
+        value: "10"
+      - key: MAX_FILE_SIZE_MB
+        value: "10"
