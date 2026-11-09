@@ -40,6 +40,52 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(99, 102, 241, 0.35) transparent;
+}
+
+/* Custom Scrollbars - Matching Dark / Indigo Theme */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--brand-primary);
+    box-shadow: 0 0 10px var(--brand-glow);
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--brand-primary-hover);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+/* Contextual scrollbar hover reveal */
+.chat-feed:hover::-webkit-scrollbar-thumb,
+.documents-list:hover::-webkit-scrollbar-thumb,
+.sidebar:hover::-webkit-scrollbar-thumb {
+    background: rgba(99, 102, 241, 0.35);
+}
+
+.chat-feed::-webkit-scrollbar-thumb:hover,
+.documents-list::-webkit-scrollbar-thumb:hover,
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: var(--brand-primary) !important;
 }
 
 body {
@@ -336,6 +382,7 @@ body {
     flex-direction: column;
     gap: 8px;
     padding-right: 4px;
+    scroll-behavior: smooth;
 }
 
 .empty-docs-state {
@@ -440,6 +487,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    scroll-behavior: smooth;
 }
 
 /* Welcome Card */
