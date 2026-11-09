@@ -25,8 +25,9 @@ class DocumentService:
         embeddings: BaseEmbeddings,
         vector_store: BaseVectorStore,
         upload_dir: Path,
-        max_documents: int = 10,
-        max_total_storage_mb: int = 25,
+        max_documents: int = 5,
+        max_total_storage_mb: int = 10,
+        max_file_size_mb: int = 10,
         cache: Optional[BaseCache] = None
     ):
         self.loader = loader
@@ -37,6 +38,7 @@ class DocumentService:
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.max_documents = max_documents
         self.max_total_storage_mb = max_total_storage_mb
+        self.max_file_size_mb = max_file_size_mb
         self.cache = cache
         self._documents_meta: Dict[str, DocumentMetadata] = {}
 
@@ -65,6 +67,14 @@ class DocumentService:
         if len(file_bytes) == 0:
             raise ValueError("Uploaded file is empty.")
 
+        max_file_bytes = self.max_file_size_mb * 1024 * 1024
+        if len(file_bytes) > max_file_bytes:
+            file_mb = round(len(file_bytes) / (1024 * 1024), 2)
+            raise ValueError(
+                f"File exceeds the maximum {self.max_file_size_mb} MB limit (uploaded: {file_mb} MB). "
+                f"Please upload a smaller document."
+            )
+
         content_hash = self._compute_hash(file_bytes)
 
         # Check if identical file was already indexed
@@ -82,7 +92,7 @@ class DocumentService:
                 f"Please delete existing documents to upload new ones."
             )
 
-        # Constraint 2: Cumulative storage limit (max 25 MB across all documents)
+        # Constraint 2: Cumulative storage limit (max 10 MB across all documents)
         current_total_bytes = sum(f.stat().st_size for f in self.upload_dir.glob("*_*") if f.is_file())
         max_total_bytes = self.max_total_storage_mb * 1024 * 1024
         new_file_bytes = len(file_bytes)

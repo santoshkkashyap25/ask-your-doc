@@ -25,8 +25,9 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # Storage & Document Limits
-    MAX_DOCUMENTS: int = 10
-    MAX_TOTAL_STORAGE_MB: int = 25
+    MAX_DOCUMENTS: int = 5
+    MAX_TOTAL_STORAGE_MB: int = 10
+    MAX_FILE_SIZE_MB: int = 10
 
     # Document Chunking
     CHUNK_SIZE: int = 500

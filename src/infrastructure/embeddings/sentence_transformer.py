@@ -22,9 +22,19 @@ class SentenceTransformerEmbeddings(BaseEmbeddings):
         if self._model is None:
             logger.info("Loading SentenceTransformer model '%s'...", self.model_name)
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name)
+            try:
+                self._model = SentenceTransformer(self.model_name, local_files_only=True)
+            except Exception:
+                self._model = SentenceTransformer(self.model_name)
             logger.info("SentenceTransformer model '%s' loaded successfully.", self.model_name)
         return self._model
+
+    def warmup(self) -> None:
+        """Eagerly load the neural model and execute a dummy tensor pass during startup."""
+        logger.info("Eagerly pre-warming SentenceTransformer model '%s'...", self.model_name)
+        model = self._get_model()
+        _ = model.encode("warmup initialization query", normalize_embeddings=True, show_progress_bar=False)
+        logger.info("SentenceTransformer model '%s' eagerly pre-warmed successfully.", self.model_name)
 
     def _hash_text(self, text: str) -> str:
         return hashlib.sha256(f"{self.model_name}:{text}".encode("utf-8")).hexdigest()

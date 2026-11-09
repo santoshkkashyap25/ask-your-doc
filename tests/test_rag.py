@@ -230,20 +230,21 @@ class TestRAGComponents(unittest.TestCase):
             doc_service.ingest_pdf("doc_4.pdf", b"PDF content 4")
         self.assertIn("Maximum document limit reached", str(ctx.exception))
 
-        # Test storage limit
+        # Test per-file limit and storage limit
         doc_service2 = DocumentService(
             loader=DummyLoader(),
             splitter=DummySplitter(),
             embeddings=DummyEmbeddings(),
             vector_store=MemoryVectorStore(),
             upload_dir=self.test_dir / "uploads2",
-            max_documents=10,
-            max_total_storage_mb=1
+            max_documents=5,
+            max_total_storage_mb=10,
+            max_file_size_mb=1
         )
         large_bytes = b"0" * (2 * 1024 * 1024)
         with self.assertRaises(ValueError) as ctx2:
             doc_service2.ingest_pdf("large.pdf", large_bytes)
-        self.assertIn("Total storage limit exceeded", str(ctx2.exception))
+        self.assertIn("File exceeds the maximum", str(ctx2.exception))
 
 
 if __name__ == "__main__":

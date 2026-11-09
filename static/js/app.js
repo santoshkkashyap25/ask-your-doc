@@ -86,13 +86,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const currentCount = parseInt(docCountEl.textContent || "0", 10);
-        if (currentCount >= 10) {
-            showToast("Document limit reached (maximum 10). Please delete a document first.", "error");
+        if (currentCount >= 5) {
+            showToast("Document limit reached (maximum 5 documents). Please delete a document first.", "error");
             return;
         }
 
-        if (file.size > 25 * 1024 * 1024) {
-            showToast("File exceeds the 25 MB cumulative storage limit.", "error");
+        if (file.size > 10 * 1024 * 1024) {
+            showToast("File exceeds the maximum 10 MB limit.", "error");
             return;
         }
 

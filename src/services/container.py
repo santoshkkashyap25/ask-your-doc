@@ -186,6 +186,7 @@ class Container:
                 upload_dir=self.settings.UPLOAD_DIR,
                 max_documents=self.settings.MAX_DOCUMENTS,
                 max_total_storage_mb=self.settings.MAX_TOTAL_STORAGE_MB,
+                max_file_size_mb=getattr(self.settings, "MAX_FILE_SIZE_MB", 10),
                 cache=self.cache
             )
         return self._document_service

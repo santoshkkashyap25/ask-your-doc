@@ -26,8 +26,9 @@ class GroqLLM(BaseLLM):
 
     def _get_client(self):
         if self._client is None:
+            import httpx
             from groq import Groq
-            self._client = Groq(api_key=self.api_key)
+            self._client = Groq(api_key=self.api_key, http_client=httpx.Client())
         return self._client
 
     def _clean_response(self, text: str) -> str:

@@ -21,6 +21,8 @@ async def lifespan(app: FastAPI):
         from src.services.container import container
         logger.info("Pre-warming RAG components (embeddings, vector store, LLM)...")
         _ = container.embeddings
+        if hasattr(container.embeddings, "warmup"):
+            container.embeddings.warmup()
         _ = container.vector_store
         _ = container.llm
         logger.info("RAG components pre-warmed and ready.")
