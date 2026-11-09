@@ -1,12 +1,33 @@
 """Document loader implementation using pypdf and pdfplumber."""
 
 import logging
+import re
 from pathlib import Path
 from typing import List
 from src.core.domain.models import Document
 from src.core.interfaces.loader import BaseDocumentLoader
 
 logger = logging.getLogger("AskMyPDF.Loader")
+
+
+def clean_extracted_pdf_text(text: str) -> str:
+    """Clean common PDF extraction artifacts, font icon glitches, and unicode noise."""
+    if not text:
+        return ""
+    # Normalize unicode non-breaking spaces and narrow spaces
+    text = text.replace("\u202f", " ").replace("\u00a0", " ").replace("\ufeff", "")
+    # Remove non-printable control characters except tab and newline
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+    # Fix common icon font extraction artifacts in resumes (e.g. FontAwesome ligatures)
+    text = re.sub(r"[\u2640\u2642\u00b6\u25cb\u25cf\u2022]*\s*obile[- ]?alt", " Mobile: ", text, flags=re.IGNORECASE)
+    text = re.sub(r"[\u2640\u2642\u00b6\u25cb\u25cf\u2022]*\s*envelope", " Email: ", text, flags=re.IGNORECASE)
+    text = re.sub(r"[\u2640\u2642\u00b6\u25cb\u25cf\u2022]*\s*phone", " Phone: ", text, flags=re.IGNORECASE)
+    # Normalize multiple horizontal whitespaces on single lines
+    lines = [re.sub(r"[ \t]+", " ", line) for line in text.splitlines()]
+    text = "\n".join(lines)
+    # Collapse 3+ consecutive newlines to 2
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 class PyPDFLoader(BaseDocumentLoader):
@@ -31,7 +52,7 @@ class PyPDFLoader(BaseDocumentLoader):
             for page_idx, page in enumerate(reader.pages):
                 page_text = page.extract_text() or ""
                 page_num = page_idx + 1
-                cleaned_text = page_text.strip()
+                cleaned_text = clean_extracted_pdf_text(page_text)
                 if cleaned_text:
                     documents.append(
                         Document(
@@ -57,7 +78,7 @@ class PyPDFLoader(BaseDocumentLoader):
                 for page_idx, page in enumerate(pdf.pages):
                     page_text = page.extract_text() or ""
                     page_num = page_idx + 1
-                    cleaned_text = page_text.strip()
+                    cleaned_text = clean_extracted_pdf_text(page_text)
                     if cleaned_text:
                         documents.append(
                             Document(
@@ -91,7 +112,7 @@ class PyPDFLoader(BaseDocumentLoader):
             for page_idx, page in enumerate(reader.pages):
                 page_text = page.extract_text() or ""
                 page_num = page_idx + 1
-                cleaned_text = page_text.strip()
+                cleaned_text = clean_extracted_pdf_text(page_text)
                 if cleaned_text:
                     documents.append(
                         Document(
@@ -117,7 +138,7 @@ class PyPDFLoader(BaseDocumentLoader):
                 for page_idx, page in enumerate(pdf.pages):
                     page_text = page.extract_text() or ""
                     page_num = page_idx + 1
-                    cleaned_text = page_text.strip()
+                    cleaned_text = clean_extracted_pdf_text(page_text)
                     if cleaned_text:
                         documents.append(
                             Document(

@@ -349,11 +349,28 @@ document.addEventListener("DOMContentLoaded", () => {
                                 }
                             } else if (event.type === "token") {
                                 answerText += event.content;
-                                contentEl.textContent = answerText;
+                                contentEl.innerHTML = renderMarkdown(answerText) + '<span class="typing-cursor"></span>';
                                 chatFeed.scrollTop = chatFeed.scrollHeight;
                             } else if (event.type === "done") {
+                                contentEl.innerHTML = renderMarkdown(answerText);
                                 const cacheTag = event.is_cached ? `<span class="cache-tag">⚡ Cache Hit</span>` : "";
                                 metaEl.innerHTML = `${cacheTag} <span>${event.execution_time_ms}ms • ${event.llm_provider}</span>`;
+                                if (btnCopyEl) {
+                                    btnCopyEl.style.display = "inline-flex";
+                                    btnCopyEl.onclick = async () => {
+                                        try {
+                                            await navigator.clipboard.writeText(answerText);
+                                            const label = btnCopyEl.querySelector(".copy-label");
+                                            if (label) {
+                                                const original = label.textContent;
+                                                label.textContent = "Copied!";
+                                                setTimeout(() => { label.textContent = original; }, 2000);
+                                            }
+                                        } catch (copyErr) {
+                                            console.error("Clipboard copy failed:", copyErr);
+                                        }
+                                    };
+                                }
                                 loadCacheStats();
                             } else if (event.type === "error") {
                                 contentEl.textContent = `Error: ${event.message}`;
@@ -368,6 +385,9 @@ document.addEventListener("DOMContentLoaded", () => {
             // Remove typing cursor indicator
             const cursor = bubbleEl.querySelector(".typing-cursor");
             if (cursor) cursor.remove();
+            if (answerText) {
+                contentEl.innerHTML = renderMarkdown(answerText);
+            }
 
         } catch (err) {
             contentEl.textContent = `Error: ${err.message}`;
@@ -399,7 +419,16 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="msg-bubble">
                 <div class="msg-header">
                     <span class="msg-sender">AskYourDoc Assistant</span>
-                    <div class="msg-meta-badge">Thinking...</div>
+                    <div class="msg-header-meta">
+                        <div class="msg-meta-badge">Thinking...</div>
+                        <button class="btn-copy-msg" title="Copy answer to clipboard" style="display: none;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            <span class="copy-label">Copy</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="msg-content"><span class="typing-cursor"></span></div>
                 <div class="citations-box" style="display: none;"></div>
@@ -412,6 +441,7 @@ document.addEventListener("DOMContentLoaded", () => {
             bubbleEl: msg.querySelector(".msg-bubble"),
             contentEl: msg.querySelector(".msg-content"),
             metaEl: msg.querySelector(".msg-meta-badge"),
+            btnCopyEl: msg.querySelector(".btn-copy-msg"),
             citationsBoxEl: msg.querySelector(".citations-box"),
         };
     }
@@ -449,10 +479,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const header = container.querySelector(".citations-header");
         const list = container.querySelector(".citations-list");
         header.addEventListener("click", () => {
-            const isHidden = list.style.display === "none";
-            list.style.display = isHidden ? "flex" : "none";
-            header.querySelector(".accordion-arrow").textContent = isHidden ? "▼" : "▶";
+            const isHidden = list.classList.toggle("collapsed");
+            header.querySelector(".accordion-arrow").textContent = isHidden ? "▶" : "▼";
         });
+    }
+
+    function renderMarkdown(rawText) {
+        if (!rawText) return "";
+        if (window.marked && window.DOMPurify) {
+            try {
+                const parsed = window.marked.parse(rawText, { gfm: true, breaks: true });
+                return window.DOMPurify.sanitize(parsed);
+            } catch (e) {
+                console.warn("Markdown render error:", e);
+            }
+        }
+        return escapeHtml(rawText);
     }
 
     // Helper Toast

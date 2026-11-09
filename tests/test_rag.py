@@ -348,6 +348,17 @@ class TestRAGComponents(unittest.TestCase):
                 self.assertEqual(docs[0].filename, "quarterly_report.pdf")
                 self.assertEqual(docs[0].doc_id, "abc12345")
 
+    def test_pypdf_loader_clean_extracted_text(self):
+        """Test that PDF text extraction cleans FontAwesome icon artifacts and control characters."""
+        from src.infrastructure.loaders.pypdf_loader import clean_extracted_pdf_text
+
+        raw_noisy_text = "SantoshKumar Kashyap Noida, UP ♂¶obile-alt +91-7807818283 \x00\x08• ✉envelope santosh@gmail.com"
+        cleaned = clean_extracted_pdf_text(raw_noisy_text)
+        self.assertNotIn("♂¶obile-alt", cleaned)
+        self.assertNotIn("\x00", cleaned)
+        self.assertIn("Mobile:", cleaned)
+        self.assertIn("Email:", cleaned)
+
     def test_groq_llm_stream_reasoning_stripping(self):
         """Test that GroqLLM.stream() strips <think>...</think> without dropping trailing tokens."""
         from unittest.mock import MagicMock

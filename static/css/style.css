@@ -633,6 +633,34 @@ body {
     font-size: 0.75rem;
 }
 
+.msg-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-copy-msg {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-family: inherit;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: var(--transition);
+}
+
+.btn-copy-msg:hover {
+    color: var(--text-primary);
+    background: var(--bg-surface-hover);
+    border-color: var(--border-highlight);
+}
+
 .msg-sender {
     font-weight: 700;
     color: #818cf8;
@@ -657,8 +685,132 @@ body {
 
 .msg-content {
     color: var(--text-primary);
-    white-space: pre-wrap;
     word-break: break-word;
+}
+
+.chat-message.user .msg-content {
+    white-space: pre-wrap;
+}
+
+.chat-message.assistant .msg-content {
+    white-space: normal;
+    line-height: 1.65;
+    font-size: 0.92rem;
+}
+
+.chat-message.assistant .msg-content p {
+    margin-bottom: 12px;
+}
+
+.chat-message.assistant .msg-content p:last-child {
+    margin-bottom: 0;
+}
+
+.chat-message.assistant .msg-content ul,
+.chat-message.assistant .msg-content ol {
+    margin: 8px 0 12px 20px;
+    padding-left: 4px;
+}
+
+.chat-message.assistant .msg-content li {
+    margin-bottom: 6px;
+    line-height: 1.6;
+}
+
+.chat-message.assistant .msg-content li:last-child {
+    margin-bottom: 0;
+}
+
+.chat-message.assistant .msg-content li > ul,
+.chat-message.assistant .msg-content li > ol {
+    margin: 6px 0 6px 18px;
+}
+
+.chat-message.assistant .msg-content strong {
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.chat-message.assistant .msg-content em {
+    color: #cbd5e1;
+}
+
+.chat-message.assistant .msg-content h1,
+.chat-message.assistant .msg-content h2,
+.chat-message.assistant .msg-content h3,
+.chat-message.assistant .msg-content h4 {
+    color: #f8fafc;
+    font-weight: 700;
+    margin: 16px 0 8px;
+    letter-spacing: -0.01em;
+}
+
+.chat-message.assistant .msg-content h1 { font-size: 1.22rem; }
+.chat-message.assistant .msg-content h2 { font-size: 1.10rem; }
+.chat-message.assistant .msg-content h3 { font-size: 1.02rem; }
+.chat-message.assistant .msg-content h4 { font-size: 0.95rem; }
+
+.chat-message.assistant .msg-content code {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.chat-message.assistant .msg-content pre {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin: 12px 0;
+    overflow-x: auto;
+}
+
+.chat-message.assistant .msg-content pre code {
+    background: transparent;
+    padding: 0;
+    border: none;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre;
+}
+
+.chat-message.assistant .msg-content blockquote {
+    border-left: 3px solid var(--brand-primary);
+    background: rgba(99, 102, 241, 0.06);
+    padding: 8px 14px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    margin: 12px 0;
+    color: var(--text-secondary);
+}
+
+.chat-message.assistant .msg-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 0.85rem;
+}
+
+.chat-message.assistant .msg-content th,
+.chat-message.assistant .msg-content td {
+    border: 1px solid var(--border-subtle);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.chat-message.assistant .msg-content th {
+    background: var(--bg-surface-elevated);
+    color: #a5b4fc;
+    font-weight: 600;
+}
+
+.chat-message.assistant .msg-content hr {
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+    margin: 16px 0;
 }
 
 /* Citations Accordion */
@@ -688,6 +840,10 @@ body {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.citations-list.collapsed {
+    display: none !important;
 }
 
 .citation-item {
