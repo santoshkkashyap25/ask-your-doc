@@ -246,6 +246,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (welcomeCard) welcomeCard.style.display = "none";
 
+        // Collect previous conversation turns for context (up to last 4 messages)
+        const history = [];
+        const msgEls = chatFeed.querySelectorAll(".chat-message");
+        msgEls.forEach((el) => {
+            const isUser = el.classList.contains("user");
+            const isAssistant = el.classList.contains("assistant");
+            const content = el.querySelector(".msg-content");
+            if (content && (isUser || isAssistant)) {
+                const text = content.textContent.trim();
+                if (text && !text.startsWith("Error:")) {
+                    history.push({
+                        role: isUser ? "user" : "assistant",
+                        content: text,
+                    });
+                }
+            }
+        });
+        const recentHistory = history.slice(-4);
+
         // Append user bubble
         appendUserMessage(query);
         queryInput.value = "";
@@ -264,6 +283,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify({
                     question: query,
                     doc_id: null,
+                    history: recentHistory,
                 }),
             });
 
@@ -293,7 +313,12 @@ document.addEventListener("DOMContentLoaded", () => {
                             const event = JSON.parse(jsonStr);
 
                             if (event.type === "sources") {
-                                renderCitations(citationsBoxEl, event.citations);
+                                if (!event.citations || event.citations.length === 0) {
+                                    citationsBoxEl.style.display = "none";
+                                    citationsBoxEl.innerHTML = "";
+                                } else {
+                                    renderCitations(citationsBoxEl, event.citations);
+                                }
                                 if (event.is_cached) {
                                     metaEl.innerHTML = `<span class="cache-tag">⚡ Cache Hit</span>`;
                                 }

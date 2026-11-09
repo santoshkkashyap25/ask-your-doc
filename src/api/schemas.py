@@ -4,10 +4,17 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class ChatMessage(BaseModel):
+    """Schema for individual conversational history turn."""
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str = Field(..., description="Message text content")
+
+
 class QueryRequest(BaseModel):
     """Schema for incoming user questions."""
-    question: str = Field(..., min_length=2, max_length=1000, description="The natural language question to ask")
+    question: str = Field(..., min_length=1, max_length=1000, description="The natural language question to ask")
     doc_id: Optional[str] = Field(None, description="Optional doc_id filter to scope search to a single document")
+    history: Optional[List[ChatMessage]] = Field(default_factory=list, description="Recent conversation turns for context")
 
 
 class CitationResponse(BaseModel):

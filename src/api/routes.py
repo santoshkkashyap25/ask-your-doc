@@ -117,10 +117,12 @@ async def delete_document(doc_id: str):
 async def query_documents(request: QueryRequest):
     """Execute synchronous document question answering."""
     try:
+        history_dicts = [h.model_dump() for h in request.history] if request.history else []
         result = await asyncio.to_thread(
             container.workflow.run,
             query=request.question,
-            filter_doc_id=request.doc_id
+            filter_doc_id=request.doc_id,
+            history=history_dicts
         )
 
         citations_res = [
@@ -154,9 +156,15 @@ async def query_documents(request: QueryRequest):
 @router.post("/api/query/stream")
 async def query_documents_stream(request: QueryRequest):
     """Server-Sent Events (SSE) streaming endpoint for real-time token emission."""
+    history_dicts = [h.model_dump() for h in request.history] if request.history else []
+
     def event_generator():
         try:
-            for event in container.workflow.stream(query=request.question, filter_doc_id=request.doc_id):
+            for event in container.workflow.stream(
+                query=request.question,
+                filter_doc_id=request.doc_id,
+                history=history_dicts
+            ):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             logger.error("Stream generation error for '%s': %s", request.question, e, exc_info=True)

@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import re
 import time
 from typing import Any, Dict, Iterator, List, Optional, TypedDict
 from src.core.domain.models import Citation, DocumentChunk, QueryResult, RetrievedChunk
@@ -13,11 +14,40 @@ from src.core.interfaces.workflow import BaseRAGWorkflow
 
 logger = logging.getLogger("AskMyPDF.Workflow")
 
+GREETING_PATTERNS = {
+    "hi", "hello", "hey", "hola", "greetings", "good morning", "good afternoon",
+    "good evening", "howdy", "what's up", "whats up", "sup", "who are you",
+    "help", "thanks", "thank you", "bye", "goodbye"
+}
+
+NEGATIVE_RESPONSE_PATTERNS = [
+    "does not contain",
+    "cannot be found",
+    "not mentioned in",
+    "no information",
+    "not found in the document",
+    "context does not provide",
+    "not provided in the document",
+    "no mention of",
+    "not stated in the document"
+]
+
+
+def is_greeting(text: str) -> bool:
+    cleaned = re.sub(r"[^\w\s]", "", text.strip().lower())
+    return cleaned in GREETING_PATTERNS
+
+
+def is_negative_response(text: str) -> bool:
+    low = text.lower()
+    return any(p in low for p in NEGATIVE_RESPONSE_PATTERNS)
+
 
 class RAGGraphState(TypedDict, total=False):
     """Internal state dictionary passed between nodes in the LangGraph graph."""
     question: str
     filter_doc_id: Optional[str]
+    history: List[Dict[str, str]]
     retrieved_chunks: List[RetrievedChunk]
     citations: List[Citation]
     context_prompt: str
@@ -49,15 +79,26 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
         self.cache_ttl = cache_ttl
         self._graph = None
 
-    def _cache_key(self, query: str, filter_doc_id: Optional[str]) -> str:
-        raw = f"{query.strip().lower()}:{filter_doc_id or 'all'}"
+    def _cache_key(
+        self,
+        query: str,
+        filter_doc_id: Optional[str],
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> str:
+        last_turn = ""
+        if history:
+            for h in reversed(history):
+                if h.get("role") == "user":
+                    last_turn = h.get("content", "").strip().lower()
+                    break
+        raw = f"{last_turn}:{query.strip().lower()}:{filter_doc_id or 'all'}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     # --- LangGraph Nodes ---
 
     def _check_cache_node(self, state: RAGGraphState) -> Dict[str, Any]:
         """Node 1: Inspect SQLite cache for pre-computed query answers."""
-        key = self._cache_key(state["question"], state.get("filter_doc_id"))
+        key = self._cache_key(state["question"], state.get("filter_doc_id"), state.get("history"))
         cached_data = self.cache.get("answers", key)
         if cached_data:
             logger.info("Cache HIT for query '%s'", state["question"][:40])
@@ -85,8 +126,24 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
         """Node 2: Retrieve relevant chunks using embeddings and vector store."""
         question = state["question"]
         filter_doc_id = state.get("filter_doc_id")
+        history = state.get("history", [])
 
-        query_emb = self.embeddings.embed_query(question)
+        # Follow-up query resolution: if question contains referents or is short, merge with previous user intent
+        retrieval_query = question
+        if history:
+            words = question.strip().lower().split()
+            has_referent = any(w in {"it", "this", "that", "he", "she", "they", "its", "his", "her", "their", "them"} for w in words)
+            is_short = len(words) <= 4
+            if has_referent or is_short:
+                last_user_q = ""
+                for h in reversed(history):
+                    if h.get("role") == "user":
+                        last_user_q = h.get("content", "").strip()
+                        break
+                if last_user_q and last_user_q.lower() != question.lower():
+                    retrieval_query = f"{last_user_q} {question}"
+
+        query_emb = self.embeddings.embed_query(retrieval_query)
         retrieved = self.vector_store.similarity_search(
             query_embedding=query_emb,
             top_k=self.top_k,
@@ -118,6 +175,7 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
         """Node 3: Grade context quality and construct grounded prompt."""
         retrieved = state.get("retrieved_chunks", [])
         question = state["question"]
+        history = state.get("history", [])
 
         if not retrieved:
             context_str = "No relevant context found in the uploaded documents."
@@ -129,12 +187,22 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
                 context_parts.append(part)
             context_str = "\n\n".join(context_parts)
 
+        history_context = ""
+        if history:
+            formatted_turns = []
+            for h in history[-4:]:
+                role = "User" if h.get("role") == "user" else "Assistant"
+                formatted_turns.append(f"{role}: {h.get('content', '')}")
+            if formatted_turns:
+                history_context = "Recent Conversation History:\n" + "\n".join(formatted_turns) + "\n\n"
+
         prompt = (
             f"You are a helpful and accurate document assistant. Use ONLY the following context excerpts "
             f"from the uploaded PDF to answer the question. If the answer cannot be found in the context, "
             f"truthfully state that the document does not contain that information. Do not hallucinate.\n\n"
             f"Context:\n{context_str}\n\n"
-            f"Question: {question}\n\n"
+            f"{history_context}"
+            f"Current Question: {question}\n\n"
             f"Answer:"
         )
 
@@ -152,8 +220,11 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
 
     def _cache_result_node(self, state: RAGGraphState) -> Dict[str, Any]:
         """Node 5: Persist freshly generated answer in the cache."""
+        if is_negative_response(state.get("answer", "")):
+            state["citations"] = []
+
         if not state.get("is_cached") and state.get("answer"):
-            key = self._cache_key(state["question"], state.get("filter_doc_id"))
+            key = self._cache_key(state["question"], state.get("filter_doc_id"), state.get("history"))
             serializable_citations = [
                 {
                     "doc_id": c.doc_id,
@@ -212,12 +283,34 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
             logger.warning("Could not compile LangGraph (%s). Using native node dispatch.", e)
             return None
 
-    def run(self, query: str, filter_doc_id: Optional[str] = None) -> QueryResult:
+    def run(
+        self,
+        query: str,
+        filter_doc_id: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> QueryResult:
         """Execute full RAG workflow synchronously."""
         start_time = time.time()
+
+        # Conversational greeting / pleasantry detection
+        if is_greeting(query):
+            greeting_answer = (
+                "Hello! I am your AskYourDoc assistant. "
+                "Upload a document or ask me any question about your indexed files, and I'll answer with exact citations."
+            )
+            return QueryResult(
+                question=query,
+                answer=greeting_answer,
+                citations=[],
+                is_cached=False,
+                execution_time_ms=round((time.time() - start_time) * 1000, 2),
+                llm_provider=self.llm.provider_name
+            )
+
         initial_state: RAGGraphState = {
             "question": query,
             "filter_doc_id": filter_doc_id,
+            "history": history or [],
             "is_cached": False,
             "citations": []
         }
@@ -226,7 +319,6 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
         if graph:
             final_state = graph.invoke(initial_state)
         else:
-            # Native fallback sequential dispatch
             cache_res = self._check_cache_node(initial_state)
             initial_state.update(cache_res)
             if initial_state.get("is_cached"):
@@ -241,24 +333,52 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
                 self._cache_result_node(initial_state)
                 final_state = initial_state
 
+        raw_answer = final_state.get("answer", "No response generated.")
+        if is_negative_response(raw_answer):
+            final_citations = []
+        else:
+            final_citations = final_state.get("citations", [])
+
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
         return QueryResult(
             question=query,
-            answer=final_state.get("answer", "No response generated."),
-            citations=final_state.get("citations", []),
+            answer=raw_answer,
+            citations=final_citations,
             is_cached=final_state.get("is_cached", False),
             execution_time_ms=elapsed_ms,
             llm_provider=final_state.get("llm_provider", self.llm.provider_name)
         )
 
-    def stream(self, query: str, filter_doc_id: Optional[str] = None) -> Iterator[Dict]:
+    def stream(
+        self,
+        query: str,
+        filter_doc_id: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> Iterator[Dict]:
         """Stream RAG response with immediate source citations and token-by-token emission."""
         start_time = time.time()
-        key = self._cache_key(query, filter_doc_id)
+
+        # Conversational greeting / pleasantry detection
+        if is_greeting(query):
+            greeting_answer = (
+                "Hello! I am your AskYourDoc assistant. "
+                "Upload a document or ask me any question about your indexed files, and I'll answer with exact citations."
+            )
+            yield {"type": "sources", "citations": [], "is_cached": False}
+            yield {"type": "token", "content": greeting_answer}
+            elapsed_ms = round((time.time() - start_time) * 1000, 2)
+            yield {
+                "type": "done",
+                "is_cached": False,
+                "execution_time_ms": elapsed_ms,
+                "llm_provider": self.llm.provider_name
+            }
+            return
+
+        key = self._cache_key(query, filter_doc_id, history)
         cached_data = self.cache.get("answers", key)
 
         if cached_data:
-            # Emit cached result immediately
             citations = cached_data.get("citations", [])
             yield {"type": "sources", "citations": citations, "is_cached": True}
             yield {"type": "token", "content": cached_data["answer"]}
@@ -272,7 +392,11 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
             return
 
         # Cache miss: retrieve first
-        state: RAGGraphState = {"question": query, "filter_doc_id": filter_doc_id}
+        state: RAGGraphState = {
+            "question": query,
+            "filter_doc_id": filter_doc_id,
+            "history": history or []
+        }
         ret_res = self._retrieve_node(state)
         state.update(ret_res)
 
@@ -288,7 +412,7 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
             for c in state.get("citations", [])
         ]
 
-        # Emit retrieved citations so the UI displays source badges right away
+        # Emit initial retrieved citations
         yield {"type": "sources", "citations": citations_list, "is_cached": False}
 
         fmt_res = self._grade_and_format_node(state)
@@ -304,6 +428,12 @@ class LangGraphRAGWorkflow(BaseRAGWorkflow):
         full_answer = "".join(generated_chunks).strip()
         state["answer"] = full_answer
         state["is_cached"] = False
+
+        # If answer is negative / not found, suppress citations in UI and cache
+        if is_negative_response(full_answer):
+            state["citations"] = []
+            yield {"type": "sources", "citations": []}
+
         self._cache_result_node(state)
 
         elapsed_ms = round((time.time() - start_time) * 1000, 2)

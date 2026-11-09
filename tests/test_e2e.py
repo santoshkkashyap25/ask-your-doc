@@ -81,6 +81,40 @@ def run_e2e_tests():
         print("  -> Streamed Answer:", full_stream_answer)
         assert len(full_stream_answer) > 0
 
+        print("\n[6b] Testing Conversational Greeting ('hi')...")
+        hi_payload = {"question": "hi"}
+        hi_citations = None
+        hi_tokens = []
+        with client.stream("POST", "/api/query/stream", json=hi_payload) as response:
+            assert response.status_code == 200
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    event = json.loads(line.replace("data: ", ""))
+                    if event["type"] == "sources":
+                        hi_citations = event["citations"]
+                    elif event["type"] == "token":
+                        hi_tokens.append(event["content"])
+        hi_answer = "".join(hi_tokens)
+        print("  -> Greeting Answer:", hi_answer)
+        print("  -> Greeting Citations count:", len(hi_citations))
+        assert "AskYourDoc assistant" in hi_answer
+        assert len(hi_citations) == 0, "Greetings must NOT have citations!"
+
+        print("\n[6c] Testing Follow-Up Query with History...")
+        follow_payload = {
+            "question": "what does it mean?",
+            "doc_id": doc_id,
+            "history": [
+                {"role": "user", "content": "What is the warranty period?"},
+                {"role": "assistant", "content": "The warranty period is three years from installation."}
+            ]
+        }
+        res_follow = client.post("/api/query", json=follow_payload)
+        assert res_follow.status_code == 200
+        follow_data = res_follow.json()
+        print("  -> Follow-up Answer:", follow_data["answer"])
+        assert len(follow_data["answer"]) > 0
+
         print("\n[7] Testing Cache Stats...")
         res = client.get("/api/cache/stats")
         assert res.status_code == 200

@@ -373,6 +373,105 @@ class TestRAGComponents(unittest.TestCase):
         output2 = "".join(list(llm.stream("test prompt 2")))
         self.assertEqual(output2, "Direct answer without reasoning.")
 
+    def test_conversational_greeting_bypass(self):
+        """Test that greetings (hi, hello) immediately yield a polite greeting without citations."""
+        class DummyEmbeddings:
+            def embed_query(self, q):
+                raise AssertionError("Should not embed query for greeting!")
+
+        workflow = LangGraphRAGWorkflow(
+            vector_store=MemoryVectorStore(),
+            embeddings=DummyEmbeddings(),
+            llm=MockExtractiveLLM(),
+            cache=SQLiteDiskCache(self.db_path)
+        )
+
+        res = workflow.run("hi")
+        self.assertIn("AskYourDoc assistant", res.answer)
+        self.assertEqual(len(res.citations), 0)
+
+        # Stream version
+        events = list(workflow.stream("hello"))
+        sources_event = [e for e in events if e.get("type") == "sources"][0]
+        self.assertEqual(len(sources_event["citations"]), 0)
+        tokens = "".join([e["content"] for e in events if e.get("type") == "token"])
+        self.assertIn("AskYourDoc assistant", tokens)
+
+    def test_conversational_follow_up_history(self):
+        """Test that conversational follow-ups with history incorporate prior turn context."""
+        class RecordingLLM(MockExtractiveLLM):
+            def __init__(self):
+                super().__init__()
+                self.last_prompt = ""
+
+            def generate(self, prompt, system_prompt=None, **kwargs):
+                self.last_prompt = prompt
+                return "The termination notice period is thirty days."
+
+        llm = RecordingLLM()
+        workflow = LangGraphRAGWorkflow(
+            vector_store=MemoryVectorStore(),
+            embeddings=DummyEmbeddingsWithVecs(),
+            llm=llm,
+            cache=SQLiteDiskCache(self.db_path)
+        )
+
+        history = [
+            {"role": "user", "content": "What is the termination notice period?"},
+            {"role": "assistant", "content": "The notice period is thirty days."}
+        ]
+        res = workflow.run("what it means", history=history)
+        self.assertIn("Recent Conversation History:", llm.last_prompt)
+        self.assertIn("What is the termination notice period?", llm.last_prompt)
+
+    def test_negative_response_citation_suppression(self):
+        """Test that citations are suppressed when the assistant states info is not found."""
+        class RefusalLLM(MockExtractiveLLM):
+            def generate(self, prompt, system_prompt=None, **kwargs):
+                return "I'm sorry, but the document does not contain that information."
+
+            def stream(self, prompt, system_prompt=None, **kwargs):
+                yield "I'm sorry, but the document does not contain that information."
+
+        # Add a dummy chunk so retrieval returns a citation
+        store = MemoryVectorStore()
+        store.add_chunks([
+            DocumentChunk(
+                chunk_id="c1",
+                doc_id="d1",
+                filename="doc.pdf",
+                page_number=1,
+                chunk_index=0,
+                text="Some document text",
+                embedding=[0.5, 0.5]
+            )
+        ])
+
+        workflow = LangGraphRAGWorkflow(
+            vector_store=store,
+            embeddings=DummyEmbeddingsWithVecs(),
+            llm=RefusalLLM(),
+            cache=SQLiteDiskCache(self.db_path)
+        )
+
+        # Sync run
+        res = workflow.run("What is the secret code?")
+        self.assertEqual(len(res.citations), 0)
+
+        # Stream run: the final sources event should have empty citations
+        events = list(workflow.stream("What is the secret code?"))
+        sources_events = [e for e in events if e.get("type") == "sources"]
+        # Last sources event emitted should be empty
+        self.assertEqual(len(sources_events[-1]["citations"]), 0)
+
+
+class DummyEmbeddingsWithVecs:
+    def embed_query(self, q):
+        return [0.5, 0.5]
+
+    def embed_documents(self, texts):
+        return [[0.5, 0.5] for _ in texts]
+
 
 if __name__ == "__main__":
     unittest.main()
