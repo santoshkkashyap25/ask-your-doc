@@ -154,3 +154,4 @@
     document.body.appendChild(container);
     document.body.appendChild(launcher);
 })();
+

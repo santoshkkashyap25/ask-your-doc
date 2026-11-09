@@ -53,3 +53,4 @@ Issues = "https://github.com/santoshkkashyap25/ask-your-doc/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*", "static*", "templates*"]
+
