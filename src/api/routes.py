@@ -1,7 +1,9 @@
 """FastAPI route definitions for AskMyPDF."""
 
+import asyncio
 import json
 import logging
+import re
 from typing import List
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -21,6 +23,7 @@ from src.services.container import container
 logger = logging.getLogger("AskMyPDF.Routes")
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+DOC_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -54,7 +57,11 @@ async def upload_pdf(file: UploadFile = File(...)):
                 detail="The uploaded file is empty."
             )
 
-        meta = container.document_service.ingest_pdf(filename=file.filename, file_bytes=content)
+        meta = await asyncio.to_thread(
+            container.document_service.ingest_pdf,
+            filename=file.filename,
+            file_bytes=content
+        )
 
         return UploadResponse(
             message=f"Successfully indexed '{file.filename}'",
@@ -77,14 +84,30 @@ async def upload_pdf(file: UploadFile = File(...)):
 @router.get("/api/documents", response_model=List[DocumentResponse])
 async def list_documents():
     """Retrieve all indexed documents."""
-    docs = container.document_service.list_documents()
+    docs = await asyncio.to_thread(container.document_service.list_documents)
     return [DocumentResponse(**d) for d in docs]
 
 
 @router.delete("/api/documents/{doc_id}")
 async def delete_document(doc_id: str):
     """Remove a document and all its indexed chunks from the system."""
-    success = container.document_service.delete_document(doc_id)
+    if not doc_id or not DOC_ID_REGEX.match(doc_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid doc_id format: '{doc_id}'"
+        )
+
+    try:
+        success = await asyncio.to_thread(container.document_service.delete_document, doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to delete document '%s': %s", doc_id, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while deleting document: {str(e)}"
+        )
+
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
     return {"message": f"Document '{doc_id}' deleted successfully", "doc_id": doc_id}
@@ -94,7 +117,8 @@ async def delete_document(doc_id: str):
 async def query_documents(request: QueryRequest):
     """Execute synchronous document question answering."""
     try:
-        result = container.workflow.run(
+        result = await asyncio.to_thread(
+            container.workflow.run,
             query=request.question,
             filter_doc_id=request.doc_id
         )
@@ -174,7 +198,7 @@ async def clear_cache():
 @router.get("/api/health", response_model=HealthResponse)
 async def health_check():
     """System health and component diagnostics."""
-    docs = container.document_service.list_documents()
+    docs = await asyncio.to_thread(container.document_service.list_documents)
     return HealthResponse(
         status="healthy",
         app_name=container.settings.APP_NAME,

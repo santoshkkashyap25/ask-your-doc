@@ -246,6 +246,133 @@ class TestRAGComponents(unittest.TestCase):
             doc_service2.ingest_pdf("large.pdf", large_bytes)
         self.assertIn("File exceeds the maximum", str(ctx2.exception))
 
+    def test_doc_id_validation_on_delete(self):
+        """Test that invalid doc_id inputs are strictly rejected to prevent security vulnerabilities."""
+        from src.services.document_service import DocumentService
+
+        class DummyLoader:
+            def load(self, path, doc_id=""):
+                return [Document(doc_id=doc_id, filename=path.name, page_number=1, text="Text")]
+
+        class DummySplitter:
+            def split_documents(self, docs):
+                return [DocumentChunk(chunk_id="c1", doc_id="d1", filename="f.pdf", page_number=1, chunk_index=0, text="Text")]
+
+        class DummyEmbeddings:
+            def embed_documents(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        upload_dir = self.test_dir / "security_uploads"
+        doc_service = DocumentService(
+            loader=DummyLoader(),
+            splitter=DummySplitter(),
+            embeddings=DummyEmbeddings(),
+            vector_store=MemoryVectorStore(),
+            upload_dir=upload_dir
+        )
+
+        invalid_ids = ["", "*", "*_*", "../etc", "../../passwd", "a" * 65, "bad doc id!"]
+        for bad_id in invalid_ids:
+            with self.assertRaises(ValueError):
+                doc_service.delete_document(bad_id)
+
+    def test_document_service_restart_hydration(self):
+        """Test that DocumentService hydrates metadata and storage stats across instance restarts."""
+        from src.services.document_service import DocumentService
+
+        class DummyLoader:
+            def load(self, path, doc_id=""):
+                return [Document(doc_id=doc_id, filename="sample.pdf", page_number=1, text="Hello world")]
+
+        class DummySplitter:
+            def split_documents(self, docs):
+                return [DocumentChunk(chunk_id=f"c_{docs[0].doc_id}", doc_id=docs[0].doc_id, filename="sample.pdf", page_number=1, chunk_index=0, text="Hello world")]
+
+        class DummyEmbeddings:
+            def embed_documents(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        upload_dir = self.test_dir / "hydration_uploads"
+        cache = SQLiteDiskCache(self.test_dir / "hydration_cache.db")
+
+        # Session 1: ingest document
+        s1 = DocumentService(
+            loader=DummyLoader(),
+            splitter=DummySplitter(),
+            embeddings=DummyEmbeddings(),
+            vector_store=MemoryVectorStore(),
+            upload_dir=upload_dir,
+            cache=cache
+        )
+        meta = s1.ingest_pdf("sample.pdf", b"%PDF-1.4 sample data")
+        self.assertEqual(meta.filename, "sample.pdf")
+
+        # Session 2: simulate new server startup pointing to same upload_dir and cache
+        s2 = DocumentService(
+            loader=DummyLoader(),
+            splitter=DummySplitter(),
+            embeddings=DummyEmbeddings(),
+            vector_store=MemoryVectorStore(),
+            upload_dir=upload_dir,
+            cache=cache
+        )
+        docs = s2.list_documents()
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0]["doc_id"], meta.doc_id)
+        self.assertEqual(docs[0]["filename"], "sample.pdf")
+        self.assertGreater(docs[0]["file_size_bytes"], 0)
+
+        # Deletion cleans disk and cache
+        s2.delete_document(meta.doc_id)
+        self.assertEqual(len(s2.list_documents()), 0)
+
+    def test_pypdf_loader_clean_filename(self):
+        """Test that PyPDFLoader strips the {doc_id}_ prefix from filename in documents."""
+        from src.infrastructure.loaders.pypdf_loader import PyPDFLoader
+        from unittest.mock import patch, MagicMock
+
+        loader = PyPDFLoader()
+        fake_path = Path("data/uploads/abc12345_quarterly_report.pdf")
+
+        # Mock pypdf.PdfReader to avoid needing an actual PDF on disk
+        with patch.object(Path, "exists", return_value=True):
+            with patch("pypdf.PdfReader") as mock_reader_cls:
+                mock_page = MagicMock()
+                mock_page.extract_text.return_value = "Quarterly results"
+                mock_reader_cls.return_value.pages = [mock_page]
+
+                docs = loader.load(fake_path, doc_id="abc12345")
+                self.assertEqual(len(docs), 1)
+                self.assertEqual(docs[0].filename, "quarterly_report.pdf")
+                self.assertEqual(docs[0].doc_id, "abc12345")
+
+    def test_groq_llm_stream_reasoning_stripping(self):
+        """Test that GroqLLM.stream() strips <think>...</think> without dropping trailing tokens."""
+        from unittest.mock import MagicMock
+        from types import SimpleNamespace
+
+        llm = GroqLLM(api_key="gsk_fake_key")
+
+        # Case 1: Reasoning in chunks followed by answer
+        def make_chunks(texts):
+            return [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t))]) for t in texts]
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = make_chunks([
+            "<th", "ink>I am reasoning deeply...</th", "ink>The answer is 42."
+        ])
+        llm._client = mock_client
+
+        output = "".join(list(llm.stream("test prompt")))
+        self.assertEqual(output, "The answer is 42.")
+
+        # Case 2: Regular streaming without think tags
+        mock_client.chat.completions.create.return_value = make_chunks([
+            "Direct", " answer", " without reasoning."
+        ])
+        output2 = "".join(list(llm.stream("test prompt 2")))
+        self.assertEqual(output2, "Direct answer without reasoning.")
+
 
 if __name__ == "__main__":
     unittest.main()

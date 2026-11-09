@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,6 +14,7 @@ from src.core.interfaces.vector_store import BaseVectorStore
 from src.core.interfaces.cache import BaseCache
 
 logger = logging.getLogger("AskMyPDF.DocService")
+DOC_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 
 class DocumentService:
@@ -59,6 +61,64 @@ class DocumentService:
             "max_total_mb": self.max_total_storage_mb
         }
 
+    def _hydrate_metadata(self) -> None:
+        """Hydrate in-memory metadata from cache and disk files if not already in memory."""
+        try:
+            vector_docs = {d["doc_id"]: d for d in self.vector_store.list_documents()}
+        except Exception:
+            vector_docs = {}
+
+        for f in self.upload_dir.glob("*_*"):
+            if not f.is_file():
+                continue
+            parts = f.name.split("_", 1)
+            if len(parts) == 2 and DOC_ID_REGEX.match(parts[0]):
+                d_id = parts[0]
+                if d_id in self._documents_meta:
+                    continue
+
+                if self.cache:
+                    try:
+                        cached = self.cache.get("doc_meta", d_id)
+                        if cached and isinstance(cached, dict):
+                            self._documents_meta[d_id] = DocumentMetadata(
+                                doc_id=cached.get("doc_id", d_id),
+                                filename=cached.get("filename", parts[1]),
+                                file_size_bytes=cached.get("file_size_bytes", f.stat().st_size),
+                                content_hash=cached.get("content_hash", ""),
+                                total_pages=cached.get("total_pages", 1),
+                                total_chunks=cached.get("total_chunks", 0),
+                                created_at=cached.get("created_at", "")
+                            )
+                            continue
+                    except Exception as e:
+                        logger.warning("Error reading doc_meta cache for '%s': %s", d_id, e)
+
+                v_info = vector_docs.get(d_id, {})
+                meta = DocumentMetadata(
+                    doc_id=d_id,
+                    filename=v_info.get("filename") or parts[1],
+                    file_size_bytes=f.stat().st_size,
+                    content_hash="",
+                    total_pages=v_info.get("total_pages", 1),
+                    total_chunks=v_info.get("chunk_count", 0),
+                    created_at=""
+                )
+                self._documents_meta[d_id] = meta
+                if self.cache:
+                    try:
+                        self.cache.set("doc_meta", d_id, {
+                            "doc_id": meta.doc_id,
+                            "filename": meta.filename,
+                            "file_size_bytes": meta.file_size_bytes,
+                            "content_hash": meta.content_hash,
+                            "total_pages": meta.total_pages,
+                            "total_chunks": meta.total_chunks,
+                            "created_at": meta.created_at
+                        })
+                    except Exception:
+                        pass
+
     def ingest_pdf(self, filename: str, file_bytes: bytes) -> DocumentMetadata:
         """Ingest a PDF file from bytes, chunk it, embed it, and store in vector database."""
         if not filename.lower().endswith(".pdf"):
@@ -78,8 +138,9 @@ class DocumentService:
         content_hash = self._compute_hash(file_bytes)
 
         # Check if identical file was already indexed
+        self._hydrate_metadata()
         for existing in self._documents_meta.values():
-            if existing.content_hash == content_hash:
+            if existing.content_hash and existing.content_hash == content_hash:
                 logger.info("PDF '%s' with hash '%s' already indexed under doc_id='%s'",
                             filename, content_hash[:8], existing.doc_id)
                 return existing
@@ -146,12 +207,27 @@ class DocumentService:
         )
         self._documents_meta[doc_id] = meta
 
+        if self.cache:
+            try:
+                self.cache.set("doc_meta", doc_id, {
+                    "doc_id": meta.doc_id,
+                    "filename": meta.filename,
+                    "file_size_bytes": meta.file_size_bytes,
+                    "content_hash": meta.content_hash,
+                    "total_pages": meta.total_pages,
+                    "total_chunks": meta.total_chunks,
+                    "created_at": meta.created_at
+                })
+            except Exception as e:
+                logger.warning("Failed to persist doc_meta to cache for '%s': %s", doc_id, e)
+
         logger.info("Successfully ingested '%s' (doc_id=%s, pages=%d, chunks=%d)",
                     filename, doc_id, len(pages), len(chunks))
         return meta
 
     def list_documents(self) -> List[Dict[str, Any]]:
-        """List all indexed documents combining metadata and vector store counts."""
+        """List all indexed documents combining metadata, disk files, and vector store counts."""
+        self._hydrate_metadata()
         vector_docs = self.vector_store.list_documents()
         docs_by_id = {d["doc_id"]: d for d in vector_docs}
 
@@ -185,13 +261,20 @@ class DocumentService:
 
     def delete_document(self, doc_id: str) -> bool:
         """Delete document from vector store, disk, and metadata cache."""
+        if not doc_id or not DOC_ID_REGEX.match(doc_id):
+            raise ValueError(f"Invalid doc_id format: '{doc_id}'")
+
         self.vector_store.delete_document(doc_id)
         if doc_id in self._documents_meta:
             del self._documents_meta[doc_id]
 
         if self.cache:
+            try:
+                self.cache.delete("doc_meta", doc_id)
+            except Exception as e:
+                logger.warning("Failed to delete doc_meta for '%s': %s", doc_id, e)
             self.cache.clear("answers")
-            logger.info("Invalidated 'answers' cache following deletion of doc_id='%s'", doc_id)
+            logger.info("Invalidated 'answers' and 'doc_meta' cache following deletion of doc_id='%s'", doc_id)
 
         # Clean up disk files
         for f in self.upload_dir.glob(f"{doc_id}_*"):

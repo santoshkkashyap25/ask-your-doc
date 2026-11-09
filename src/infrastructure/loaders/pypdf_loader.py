@@ -19,6 +19,8 @@ class PyPDFLoader(BaseDocumentLoader):
 
         documents: List[Document] = []
         filename = file_path.name
+        if doc_id and filename.startswith(f"{doc_id}_"):
+            filename = filename[len(doc_id) + 1:]
 
         # Attempt extraction via pypdf first
         try:

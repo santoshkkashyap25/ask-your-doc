@@ -68,20 +68,49 @@ class GroqLLM(BaseLLM):
             stream=True
         )
         inside_think = False
-        buffer = ""
+        think_buffer = ""
+        prefix_buffer = ""
+        stream_started = False
 
         for chunk in response:
             delta = chunk.choices[0].delta.content if chunk.choices else None
             if not delta:
                 continue
 
-            buffer += delta
-            if "<think>" in buffer:
-                inside_think = True
-            if "</think>" in buffer:
-                inside_think = False
-                buffer = buffer.split("</think>")[-1]
+            if inside_think:
+                think_buffer += delta
+                if "</think>" in think_buffer:
+                    inside_think = False
+                    after_think = think_buffer.split("</think>", 1)[1]
+                    think_buffer = ""
+                    after_think = after_think.lstrip("\r\n")
+                    if after_think:
+                        yield after_think
                 continue
 
-            if not inside_think:
-                yield delta
+            if not stream_started:
+                prefix_buffer += delta
+                if prefix_buffer.startswith("<think>"):
+                    inside_think = True
+                    stream_started = True
+                    think_buffer = prefix_buffer
+                    prefix_buffer = ""
+                    if "</think>" in think_buffer:
+                        inside_think = False
+                        after_think = think_buffer.split("</think>", 1)[1]
+                        think_buffer = ""
+                        after_think = after_think.lstrip("\r\n")
+                        if after_think:
+                            yield after_think
+                    continue
+                if "<think>".startswith(prefix_buffer):
+                    continue
+                stream_started = True
+                yield prefix_buffer
+                prefix_buffer = ""
+                continue
+
+            yield delta
+
+        if prefix_buffer and not inside_think:
+            yield prefix_buffer
