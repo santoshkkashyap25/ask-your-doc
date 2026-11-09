@@ -12,7 +12,7 @@
     <!-- Main Style -->
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body>
+<body class="{% if is_embed %}is-embedded{% endif %}">
     <div class="app-layout">
         <!-- Top Navigation Bar -->
         <header class="app-header">
@@ -42,6 +42,14 @@
                     <span class="status-label">Embeddings:</span>
                     <span class="status-val" id="val-embed-model">{{ embedding_model }}</span>
                 </div>
+                <button id="btn-api-key" class="btn-icon" title="Configure custom LLM API key (BYOK)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="7.5" cy="15.5" r="5.5"></circle>
+                        <path d="M21 2l-9.6 9.6"></path>
+                        <path d="M15.5 7.5l3 3L22 7l-3-3"></path>
+                    </svg>
+                    <span id="api-key-label">API Key</span>
+                </button>
                 <button id="btn-clear-chat" class="btn-icon" title="Clear conversation">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="3 6 5 6 21 6"></polyline>
@@ -105,6 +113,26 @@
 
             <!-- Main Panel: Interactive Chat & Stream -->
             <main class="chat-container">
+                <!-- Mobile & Embedded Top Bar -->
+                <div class="chat-mobile-bar" id="chat-mobile-bar">
+                    <button id="btn-toggle-sidebar" class="btn-sidebar-toggle" title="Manage Documents">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <span id="mobile-doc-count">Documents (0)</span>
+                    </button>
+                    <span class="chat-mobile-title">AskYourDoc</span>
+                    <button id="btn-clear-chat-mobile" class="btn-icon" title="Clear conversation">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+                <!-- Backdrop for mobile drawer -->
+                <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
                 <!-- Chat Messages Feed -->
                 <div class="chat-feed" id="chat-feed">
                     <!-- Welcome Card -->
@@ -155,6 +183,36 @@
                     <p class="input-footer">AI can make mistakes. Verify important info against your documents.</p>
                 </div>
             </main>
+        </div>
+    </div>
+
+    <!-- API Key Settings Modal (BYOK) -->
+    <div id="api-key-modal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Custom API Key (BYOK)</h3>
+                <button id="btn-close-modal" class="btn-close" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">
+                    By default, AskYourDoc uses the server's configured LLM key. You can provide your own Groq API key to use your private quota directly.
+                </p>
+                <div class="modal-input-group">
+                    <label for="input-custom-api-key">Groq API Key:</label>
+                    <input 
+                        type="password" 
+                        id="input-custom-api-key" 
+                        class="modal-input" 
+                        placeholder="gsk_..."
+                        autocomplete="off"
+                    />
+                </div>
+                <div class="modal-hint">Key is saved in your browser's local storage and passed securely via encrypted request headers.</div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-clear-api-key" class="btn-modal-secondary">Clear / Reset</button>
+                <button id="btn-save-api-key" class="btn-modal-primary">Save Key</button>
+            </div>
         </div>
     </div>
 

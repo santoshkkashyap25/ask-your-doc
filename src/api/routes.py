@@ -4,8 +4,8 @@ import asyncio
 import json
 import logging
 import re
-from typing import List
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
+from typing import List, Optional
+from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -27,8 +27,8 @@ DOC_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index_page(request: Request):
-    """Serve the main single-page application."""
+async def index_page(request: Request, embed: Optional[bool] = False):
+    """Serve the main single-page application (or embedded view when embed=true)."""
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -36,6 +36,22 @@ async def index_page(request: Request):
             "app_name": container.settings.APP_NAME,
             "llm_provider": container.llm.provider_name,
             "embedding_model": container.settings.EMBEDDING_MODEL_NAME,
+            "is_embed": embed or False,
+        }
+    )
+
+
+@router.get("/embed", response_class=HTMLResponse)
+async def embed_page(request: Request):
+    """Serve the streamlined embedded widget view for iframes."""
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "app_name": container.settings.APP_NAME,
+            "llm_provider": container.llm.provider_name,
+            "embedding_model": container.settings.EMBEDDING_MODEL_NAME,
+            "is_embed": True,
         }
     )
 
@@ -121,12 +137,18 @@ async def delete_document(doc_id: str):
 
 
 @router.post("/api/query", response_model=QueryResponse)
-async def query_documents(request: QueryRequest):
-    """Execute synchronous document question answering."""
+async def query_documents(
+    request: QueryRequest,
+    x_groq_api_key: Optional[str] = Header(None, alias="X-Groq-API-Key"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """Execute synchronous document question answering with optional BYOK API key."""
     try:
+        custom_key = request.api_key or x_groq_api_key or x_api_key
+        workflow = container.get_workflow(custom_key)
         history_dicts = [h.model_dump() for h in request.history] if request.history else []
         result = await asyncio.to_thread(
-            container.workflow.run,
+            workflow.run,
             query=request.question,
             filter_doc_id=request.doc_id,
             history=history_dicts
@@ -161,13 +183,19 @@ async def query_documents(request: QueryRequest):
 
 
 @router.post("/api/query/stream")
-async def query_documents_stream(request: QueryRequest):
-    """Server-Sent Events (SSE) streaming endpoint for real-time token emission."""
+async def query_documents_stream(
+    request: QueryRequest,
+    x_groq_api_key: Optional[str] = Header(None, alias="X-Groq-API-Key"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """Server-Sent Events (SSE) streaming endpoint for real-time token emission with optional BYOK API key."""
+    custom_key = request.api_key or x_groq_api_key or x_api_key
+    workflow = container.get_workflow(custom_key)
     history_dicts = [h.model_dump() for h in request.history] if request.history else []
 
     def event_generator():
         try:
-            for event in container.workflow.stream(
+            for event in workflow.stream(
                 query=request.question,
                 filter_doc_id=request.doc_id,
                 history=history_dicts

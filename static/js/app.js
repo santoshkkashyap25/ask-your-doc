@@ -25,6 +25,101 @@ document.addEventListener("DOMContentLoaded", () => {
     const valCacheRate = document.getElementById("val-cache-rate");
     const toast = document.getElementById("toast");
 
+    // Mobile & Embedded Sidebar Elements
+    const btnToggleSidebar = document.getElementById("btn-toggle-sidebar");
+    const sidebar = document.getElementById("sidebar");
+    const sidebarBackdrop = document.getElementById("sidebar-backdrop");
+    const btnClearChatMobile = document.getElementById("btn-clear-chat-mobile");
+    const mobileDocCount = document.getElementById("mobile-doc-count");
+
+    if (btnToggleSidebar && sidebar) {
+        btnToggleSidebar.addEventListener("click", () => {
+            sidebar.classList.toggle("open");
+            if (sidebarBackdrop) sidebarBackdrop.classList.toggle("active");
+        });
+    }
+
+    if (sidebarBackdrop && sidebar) {
+        sidebarBackdrop.addEventListener("click", () => {
+            sidebar.classList.remove("open");
+            sidebarBackdrop.classList.remove("active");
+        });
+    }
+
+    if (btnClearChatMobile && btnClearChat) {
+        btnClearChatMobile.addEventListener("click", () => {
+            btnClearChat.click();
+        });
+    }
+
+    // Custom API Key (BYOK) Elements & Logic
+    const btnApiKey = document.getElementById("btn-api-key");
+    const apiKeyModal = document.getElementById("api-key-modal");
+    const btnCloseModal = document.getElementById("btn-close-modal");
+    const btnSaveApiKey = document.getElementById("btn-save-api-key");
+    const btnClearApiKey = document.getElementById("btn-clear-api-key");
+    const inputCustomApiKey = document.getElementById("input-custom-api-key");
+    const apiKeyLabel = document.getElementById("api-key-label");
+
+    function updateApiKeyUi() {
+        const storedKey = localStorage.getItem("ayd_custom_api_key");
+        if (storedKey && apiKeyLabel) {
+            apiKeyLabel.textContent = "Custom Key Active";
+            if (btnApiKey) btnApiKey.style.color = "#34d399";
+        } else if (apiKeyLabel) {
+            apiKeyLabel.textContent = "API Key";
+            if (btnApiKey) btnApiKey.style.color = "";
+        }
+    }
+    updateApiKeyUi();
+
+    if (btnApiKey && apiKeyModal) {
+        btnApiKey.addEventListener("click", () => {
+            inputCustomApiKey.value = localStorage.getItem("ayd_custom_api_key") || "";
+            apiKeyModal.classList.remove("hidden");
+            inputCustomApiKey.focus();
+        });
+    }
+
+    if (btnCloseModal && apiKeyModal) {
+        btnCloseModal.addEventListener("click", () => {
+            apiKeyModal.classList.add("hidden");
+        });
+    }
+
+    if (apiKeyModal) {
+        apiKeyModal.addEventListener("click", (e) => {
+            if (e.target === apiKeyModal) {
+                apiKeyModal.classList.add("hidden");
+            }
+        });
+    }
+
+    if (btnSaveApiKey) {
+        btnSaveApiKey.addEventListener("click", () => {
+            const val = inputCustomApiKey.value.trim();
+            if (val) {
+                localStorage.setItem("ayd_custom_api_key", val);
+                showToast("Custom API key saved! Used for all future queries.", "success");
+            } else {
+                localStorage.removeItem("ayd_custom_api_key");
+                showToast("Custom key cleared. Using server default key.", "info");
+            }
+            updateApiKeyUi();
+            apiKeyModal.classList.add("hidden");
+        });
+    }
+
+    if (btnClearApiKey) {
+        btnClearApiKey.addEventListener("click", () => {
+            localStorage.removeItem("ayd_custom_api_key");
+            inputCustomApiKey.value = "";
+            updateApiKeyUi();
+            apiKeyModal.classList.add("hidden");
+            showToast("Reset to server default API key.", "info");
+        });
+    }
+
     // Initialize
     loadDocuments();
     loadCacheStats();
@@ -144,6 +239,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function renderDocumentsList(docs) {
         docCountEl.textContent = docs.length;
+        if (mobileDocCount) {
+            mobileDocCount.textContent = `Documents (${docs.length})`;
+        }
 
         if (docs.length === 0) {
             emptyDocsMsg.style.display = "block";
@@ -302,13 +400,20 @@ document.addEventListener("DOMContentLoaded", () => {
         btnSend.disabled = true;
 
         try {
+            const reqHeaders = { "Content-Type": "application/json" };
+            const customApiKey = localStorage.getItem("ayd_custom_api_key");
+            if (customApiKey) {
+                reqHeaders["X-Groq-API-Key"] = customApiKey;
+            }
+
             const resp = await fetch("/api/query/stream", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: reqHeaders,
                 body: JSON.stringify({
                     question: query,
                     doc_id: null,
                     history: recentHistory,
+                    api_key: customApiKey || null,
                 }),
             });
 

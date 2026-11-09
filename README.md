@@ -99,6 +99,52 @@ All parameters can be customized in `.env`:
 
 ---
 
+## 🔌 Embed in Your Website / App
+
+### 1. Drop-in Floating Chat Widget (1 Line of HTML)
+You can embed AskYourDoc into any website (WordPress, Webflow, Shopify, React, HTML) by adding this script before `</body>`:
+
+```html
+<script src="https://askyourdoc-s0p9.onrender.com/static/widget.js" 
+        data-server="https://askyourdoc-s0p9.onrender.com"
+        data-title="Ask Document"
+        data-position="bottom-right">
+</script>
+```
+
+### 2. Headless REST & SSE Streaming API (with BYOK)
+Any web or mobile frontend can call the AskYourDoc API directly. Pass your own Groq API key via `X-Groq-API-Key` to use your private quota:
+
+```bash
+# Upload a PDF
+curl -X POST "https://askyourdoc-s0p9.onrender.com/api/documents/upload" \
+  -F "file=@sample.pdf"
+
+# Stream query with BYOK custom API key
+curl -N -X POST "https://askyourdoc-s0p9.onrender.com/api/query/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Groq-API-Key: gsk_your_groq_key_here" \
+  -d '{"question": "Summarize the key findings."}'
+```
+Interactive Swagger API documentation is available at **[`/docs`](https://askyourdoc-s0p9.onrender.com/docs)**.
+
+### 3. Install as a Python Package
+Install AskYourDoc directly into any Python project:
+
+```bash
+pip install git+https://github.com/santoshkkashyap25/ask-your-doc.git
+```
+
+```python
+from src.services.container import container
+
+workflow = container.get_workflow(custom_api_key="gsk_...")
+result = workflow.run("What are the key terms?")
+print(result.answer)
+```
+
+---
+
 ## 🧪 Testing
 
 ```bash

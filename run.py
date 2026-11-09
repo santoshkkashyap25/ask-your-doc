@@ -4,7 +4,8 @@ import uvicorn
 from src.config import settings
 from src.logging_config import logger
 
-if __name__ == "__main__":
+def main():
+    """Launch the AskYourDoc ASGI application server."""
     logger.info("Starting AskYourDoc server on %s:%s", settings.HOST, settings.PORT)
     uvicorn.run(
         "src.api.app:create_app",
@@ -15,3 +16,7 @@ if __name__ == "__main__":
         reload_excludes=[".venv", "data", "logs", "*.log", "*.db"],
         factory=True
     )
+
+
+if __name__ == "__main__":
+    main()

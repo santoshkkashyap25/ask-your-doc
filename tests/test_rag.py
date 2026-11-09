@@ -647,6 +647,20 @@ class TestRAGComponents(unittest.TestCase):
         self.assertEqual(len(doc_service.list_documents()), 0)
         self.assertEqual(len(store._chunks), 0)
 
+    def test_container_byok_custom_api_key(self):
+        """Test that Container creates scoped workflow with custom LLM when BYOK key is passed."""
+        from src.services.container import Container
+
+        cnt = Container()
+        # Default workflow
+        default_wf = cnt.get_workflow()
+        self.assertIs(default_wf, cnt.workflow)
+
+        # Custom API key returns a scoped workflow
+        custom_wf = cnt.get_workflow(custom_api_key="gsk_custom_test_key_12345")
+        self.assertIsNot(custom_wf, default_wf)
+        self.assertEqual(custom_wf.llm.api_key, "gsk_custom_test_key_12345")
+
 
 class DummyEmbeddingsWithVecs:
     def embed_query(self, q):

@@ -15,6 +15,7 @@ class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000, description="The natural language question to ask")
     doc_id: Optional[str] = Field(None, description="Optional doc_id filter to scope search to a single document")
     history: Optional[List[ChatMessage]] = Field(default_factory=list, description="Recent conversation turns for context")
+    api_key: Optional[str] = Field(None, description="Optional custom LLM API key (e.g. Groq) to use your own quota")
 
 
 class CitationResponse(BaseModel):

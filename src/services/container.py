@@ -173,6 +173,35 @@ class Container:
             )
         return self._workflow
 
+    def get_workflow(self, custom_api_key: Optional[str] = None) -> BaseRAGWorkflow:
+        """Get default workflow or scoped workflow with user-supplied API key."""
+        if not custom_api_key or not custom_api_key.strip():
+            return self.workflow
+
+        cleaned_key = custom_api_key.strip()
+        provider = self.settings.LLM_PROVIDER.lower()
+        if provider == "groq":
+            scoped_llm = GroqLLM(api_key=cleaned_key, model_name=self.settings.GROQ_MODEL_NAME)
+        elif provider == "grok":
+            scoped_llm = GrokLLM(api_key=cleaned_key, model_name=self.settings.GROK_MODEL_NAME)
+        elif provider == "openai":
+            scoped_llm = OpenAILLM(api_key=cleaned_key, model_name=self.settings.OPENAI_MODEL_NAME)
+        elif provider == "gemini":
+            scoped_llm = GeminiLLM(api_key=cleaned_key, model_name=self.settings.GEMINI_MODEL_NAME)
+        else:
+            scoped_llm = GroqLLM(api_key=cleaned_key)
+
+        from src.services.workflow.langgraph_workflow import LangGraphRAGWorkflow
+        return LangGraphRAGWorkflow(
+            vector_store=self.vector_store,
+            embeddings=self.embeddings,
+            llm=scoped_llm,
+            cache=self.cache,
+            top_k=self.settings.RETRIEVER_TOP_K,
+            similarity_threshold=self.settings.SIMILARITY_THRESHOLD,
+            cache_ttl=self.settings.CACHE_TTL_SECONDS
+        )
+
     @property
     def document_service(self):
         """Get or create the document ingestion and management service."""
