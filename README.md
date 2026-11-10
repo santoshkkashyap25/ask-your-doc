@@ -2,7 +2,7 @@
 
 # AskYourDoc
 
-**Retrieval-Augmented Generation (RAG) platform for PDF documents.**  
+**Privacy-First, Zero-Retention RAG Platform & Embeddable Document Assistant.**  
 Upload PDFs, ask questions, and receive grounded answers with exact page citations and live token streaming.
 
 [**🌐 Live Application: https://askyourdoc-s0p9.onrender.com**](https://askyourdoc-s0p9.onrender.com)
@@ -20,12 +20,41 @@ Upload PDFs, ask questions, and receive grounded answers with exact page citatio
 
 ---
 
-## Features
+## 🌟 Key Highlights
 
-- **Real-Time Token Streaming**: Streams answers token-by-token using FastAPI Server-Sent Events (SSE) and Groq.
-- **Page Citations**: Returns the exact PDF page number, excerpt, and similarity match score for every source chunk.
-- **LangGraph Pipeline**: StateGraph workflow that checks cache, retrieves relevant chunks, formats context, and calls the LLM.
-- **SQLite Caching**: Persistent disk cache for query answers and embeddings to avoid duplicate LLM calls and speed up repeated queries.
+- **🔒 Zero-Retention RAM Privacy**: Uploaded PDFs and extracted chunks are parsed in volatile memory (`io.BytesIO`). **Zero user files are written to server disk.**
+- **⏱️ 30-Minute Idle Auto-Purge**: Inactive documents and in-memory embeddings are automatically purged after 30 minutes, or instantly via the **"Clear All"** button.
+- **🛡️ Anti-Prompt-Leakage Guard**: Active guardrails block system prompt extraction attacks (e.g. *"give your system prompt"*), with zero citation pollution.
+- **⚡ Real-Time Markdown Token Streaming**: Progressive streaming via FastAPI Server-Sent Events (SSE) and Groq LPU inference, rendering rich GitHub-flavored markdown (headings, bold text, lists, code, tables) live in the browser.
+- **📚 Grounded Page Citations**: Exact PDF page citations, match relevance percentages, and clean text excerpts. Phantom citations are automatically suppressed when information is not in the document.
+- **💬 Multi-Turn Follow-Up Memory**: Conversational context passing resolves follow-up referents (*"what does it mean?"*, *"explain that clause"*).
+- **📋 1-Click Answer Copy**: Dedicated copy button on assistant answers copies clean markdown to your clipboard without dragging along citations.
+- **🔑 Bring Your Own Key (BYOK)**: Users and third-party apps can provide their own Groq API key via HTTP headers (`X-Groq-API-Key`), request body, or UI settings modal to use their personal quota.
+- **🧩 1-Line Embeddable Chat Widget**: Drop a single `<script>` tag into any website (Webflow, WordPress, React, Shopify) to display a floating AI document drawer.
+- **📦 Python Package / CLI**: Installable directly via `pip` with an executable CLI entrypoint (`ask-your-doc`).
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+    User["User / Web App / Widget"] -->|PDF Upload (Bytes)| Ingest["Document Service<br>(Zero-Retention io.BytesIO)"]
+    Ingest -->|Clean & Split| Chunks["Document Chunks"]
+    Chunks -->|Vector Embeddings| RAMStore["In-Memory Vector Store<br>(RAM Cosine Search)"]
+
+    User -->|Question + History + BYOK| Workflow["LangGraph StateGraph Engine"]
+    Workflow -->|Guard Check| Guard{"Meta / System<br>Query?"}
+    Guard -->|Yes| Refusal["Secure Refusal & 0 Citations"]
+    Guard -->|No| CacheCheck{"Cache Hit?"}
+    CacheCheck -->|Yes| CacheRet["Return Cached Answer"]
+    CacheCheck -->|No| Retrieve["Vector Similarity Retrieval"]
+    Retrieve -->|Grade & Format| PromptNode["Grounded Context Prompt"]
+    PromptNode -->|Inference Stream| Groq["Groq Cloud API<br>(LPU Acceleration)"]
+    Groq -->|SSE Stream| User
+
+    Timer["30-Min Inactivity Sweeper"] -.->|Auto-Purge| RAMStore
+```
 
 ---
 
@@ -64,6 +93,8 @@ GROQ_API_KEY=your_free_groq_api_key_here
 **Option A: Local Python**
 ```bash
 python run.py
+# Or via CLI entrypoint:
+ask-your-doc
 ```
 
 **Option B: Docker**
@@ -73,19 +104,24 @@ docker compose up --build
 
 # Or standard Docker
 docker build -t askyourdoc .
-docker run -p 8000:8000 -v ${PWD}/data:/app/data --env-file .env askyourdoc
+docker run -p 8000:8000 --env-file .env askyourdoc
 ```
 
 Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration & Privacy Limits
 
-All parameters can be customized in `.env`:
+All parameters can be configured in `.env`:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
+| `ZERO_RETENTION` | `True` | Ingest and store PDFs purely in RAM without writing to disk |
+| `DOC_INACTIVITY_TIMEOUT_SECONDS` | `1800` | Inactivity idle timeout before auto-purging documents (30 min) |
+| `MAX_DOCUMENTS` | `5` | Maximum number of simultaneous active documents allowed in memory |
+| `MAX_FILE_SIZE_MB` | `10` | Maximum allowed file size per uploaded PDF |
+| `MAX_TOTAL_STORAGE_MB` | `10` | Maximum cumulative in-memory vault storage limit |
 | `LLM_PROVIDER` | `groq` | Generator backend (`groq`, `grok`, `openai`, `gemini`, `mock`) |
 | `GROQ_API_KEY` | `""` | Free API key from [Groq Console](https://console.groq.com/keys) |
 | `GROQ_MODEL_NAME` | `openai/gpt-oss-20b` | Model name (`llama-3.3-70b-versatile`, `qwen/qwen3.6-27b`) |
@@ -93,16 +129,15 @@ All parameters can be customized in `.env`:
 | `CHUNK_SIZE` | `500` | Text chunk character length |
 | `CHUNK_OVERLAP` | `50` | Character overlap between adjacent chunks |
 | `RETRIEVER_TOP_K` | `4` | Number of context chunks retrieved per query |
-| `MAX_DOCUMENTS` | `10` | Maximum number of simultaneous documents stored |
-| `MAX_TOTAL_STORAGE_MB` | `25` | Maximum total cumulative PDF storage across all documents |
-| `CACHE_TTL_SECONDS` | `86400` | SQLite cache expiration time (24 hours) |
+| `SIMILARITY_THRESHOLD` | `0.25` | Minimum cosine relevance score required for citations |
+| `CACHE_TTL_SECONDS` | `86400` | Cache expiration time (24 hours) |
 
 ---
 
-## 🔌 Embed in Your Website / App
+## 🔌 How to Embed in Your Website / App
 
 ### 1. Drop-in Floating Chat Widget (1 Line of HTML)
-You can embed AskYourDoc into any website (WordPress, Webflow, Shopify, React, HTML) by adding this script before `</body>`:
+Add this script tag right before `</body>` on any website or CMS (Webflow, WordPress, Shopify, React):
 
 ```html
 <script src="https://askyourdoc-s0p9.onrender.com/static/widget.js" 
@@ -111,25 +146,35 @@ You can embed AskYourDoc into any website (WordPress, Webflow, Shopify, React, H
         data-position="bottom-right">
 </script>
 ```
+*Creates a floating branded bubble button that opens a smooth, mobile-responsive document chat drawer.*
 
 ### 2. Headless REST & SSE Streaming API (with BYOK)
-Any web or mobile frontend can call the AskYourDoc API directly. Pass your own Groq API key via `X-Groq-API-Key` to use your private quota:
+Any frontend (React, Next.js, Flutter, iOS/Android) or backend service can query AskYourDoc programmatically. Pass your own Groq key via `X-Groq-API-Key` to use your private quota:
 
 ```bash
-# Upload a PDF
+# 1. Upload a PDF
 curl -X POST "https://askyourdoc-s0p9.onrender.com/api/documents/upload" \
-  -F "file=@sample.pdf"
+  -F "file=@sample_agreement.pdf"
 
-# Stream query with BYOK custom API key
+# Response: {"doc_id": "981f5078", "filename": "sample_agreement.pdf", "total_pages": 4, "total_chunks": 12}
+
+# 2. Stream Real-Time Answer via SSE
 curl -N -X POST "https://askyourdoc-s0p9.onrender.com/api/query/stream" \
   -H "Content-Type: application/json" \
   -H "X-Groq-API-Key: gsk_your_groq_key_here" \
-  -d '{"question": "Summarize the key findings."}'
+  -d '{
+    "question": "What is the termination notice period?",
+    "doc_id": "981f5078",
+    "history": [
+      {"role": "user", "content": "What is this agreement about?"},
+      {"role": "assistant", "content": "It is a software consulting service agreement."}
+    ]
+  }'
 ```
 Interactive Swagger API documentation is available at **[`/docs`](https://askyourdoc-s0p9.onrender.com/docs)**.
 
 ### 3. Install as a Python Package
-Install AskYourDoc directly into any Python project:
+Install AskYourDoc directly into any Python application:
 
 ```bash
 pip install git+https://github.com/santoshkkashyap25/ask-your-doc.git
@@ -138,9 +183,13 @@ pip install git+https://github.com/santoshkkashyap25/ask-your-doc.git
 ```python
 from src.services.container import container
 
+# Get workflow with custom or default LLM key
 workflow = container.get_workflow(custom_api_key="gsk_...")
-result = workflow.run("What are the key terms?")
-print(result.answer)
+result = workflow.run("What are the core deliverables?")
+
+print("Answer:", result.answer)
+for c in result.citations:
+    print(f"- {c.filename} (Page {c.page_number}): {c.excerpt}")
 ```
 
 ---
@@ -148,10 +197,10 @@ print(result.answer)
 ## 🧪 Testing
 
 ```bash
-# Run unit tests (splitters, SQLite cache, memory store, Groq adapter)
+# Run automated test suite (20 unit tests covering domain, security & BYOK)
 python -m unittest tests/test_rag.py
 
-# Run end-to-end integration tests (PDF ingest, query, live stream)
+# Run live end-to-end integration tests
 python tests/test_e2e.py
 ```
 
