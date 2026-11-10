@@ -35,29 +35,6 @@ Upload PDFs, ask questions, and receive grounded answers with exact page citatio
 
 ---
 
-## 🏗️ Architecture
-
-```mermaid
-flowchart TD
-    User["User / Web App / Widget"] -->|PDF Upload (Bytes)| Ingest["Document Service<br>(Zero-Retention io.BytesIO)"]
-    Ingest -->|Clean & Split| Chunks["Document Chunks"]
-    Chunks -->|Vector Embeddings| RAMStore["In-Memory Vector Store<br>(RAM Cosine Search)"]
-
-    User -->|Question + History + BYOK| Workflow["LangGraph StateGraph Engine"]
-    Workflow -->|Guard Check| Guard{"Meta / System<br>Query?"}
-    Guard -->|Yes| Refusal["Secure Refusal & 0 Citations"]
-    Guard -->|No| CacheCheck{"Cache Hit?"}
-    CacheCheck -->|Yes| CacheRet["Return Cached Answer"]
-    CacheCheck -->|No| Retrieve["Vector Similarity Retrieval"]
-    Retrieve -->|Grade & Format| PromptNode["Grounded Context Prompt"]
-    PromptNode -->|Inference Stream| Groq["Groq Cloud API<br>(LPU Acceleration)"]
-    Groq -->|SSE Stream| User
-
-    Timer["30-Min Inactivity Sweeper"] -.->|Auto-Purge| RAMStore
-```
-
----
-
 ## 🚀 Quick Start
 
 ### 1. Clone & Set Up Environment
